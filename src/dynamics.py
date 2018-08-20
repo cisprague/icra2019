@@ -16,8 +16,8 @@ class Dynamics(object):
         self.sub = [5, 3, np.pi*2, 1]
 
         # control bounds
-        self.clb = [-1]
-        self.cub = [1]
+        self.clb = -1
+        self.cub = 1
 
 
     def eom_state(self, state, control):
@@ -126,6 +126,3 @@ class Dynamics(object):
         return alpha*v + dtheta*ltheta + dy*ly + \
             ldtheta*(-v*np.cos(theta) + np.sin(theta)) + ldy*v + \
             v**2*(-alpha + 1)
-
-    def lagrangian(self, state, control):
-        return control.flatten()**2

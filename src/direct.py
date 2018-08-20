@@ -2,6 +2,8 @@
 # christopher.iliffe.sprague@gmail.com
 
 import numpy as np
+import pygmo as pg
+from scipy.interpolate import spline
 
 class Direct(object):
 
@@ -16,9 +18,9 @@ class Direct(object):
         # initialise grids
         self.set(*self.linear())
 
-
     def set(self, times, states, controls):
 
+        # assign arrays
         self.times    = np.array(times, float)
         self.states   = np.array(states, float)
         self.controls = np.array(controls, float)
@@ -31,7 +33,10 @@ class Direct(object):
             np.linspace(self.segment.s0[i], self.segment.sf[i], self.N)
             for i in range(self.segment.dynamics.sdim)
         )).T
-        controls = np.random.random((self.N, self.segment.dynamics.cdim))
+        controls = np.random.uniform(
+            self.segment.dynamics.clb,
+            self.segment.dynamics.cub,
+            self.N)
         return times, states, controls
 
     def mismatch(self):
@@ -69,10 +74,10 @@ class Hermite_Simpson(Direct):
 
         f0  = self.segment.dynamics.eom_state(s0, u0)
         f1  = self.segment.dynamics.eom_state(s1, u1)
-        s05 = (s0 + s1)/2 + h0*(f0 + f1)/8
-        u05 = (u0 + u1)/2
+        s05 = (s0 + s1)/2. + h0*(f0 + f1)/8.
+        u05 = (u0 + u1)/2.
         f05 = self.segment.dynamics.eom_state(s05, u0)
-        return s0 + h0*(f0 + 4*f05 + f1)/6
+        return s0 + h0*(f0 + 4.*f05 + f1)/6.
 
 class Problem(object):
 
@@ -81,32 +86,26 @@ class Problem(object):
         # assign direct transcription
         self.transcription = transcription
 
-    def fitness(self, dv):
+    def fitness(self, z):
+
 
         '''
         Fitness vector:
-        [t0,s0,u0,...,tf,sf,uf]
+        [T,s0,u0,...,sf,uf]
         '''
 
-        # reshape decision vector
-        dv = dv.reshape((
+        # times
+        T = z[0]
+        times = np.linspace(0, T, self.transcription.N)
+
+        # states and controls
+        sc = z[1:].reshape((
             self.transcription.N,
-            1 +
             self.transcription.segment.dynamics.sdim +
             self.transcription.segment.dynamics.cdim
         ))
-
-        # extract times
-        i, j = 0, 0
-        times = dv[:,i].flatten()
-
-        # extract state
-        i = 1; j += i + self.transcription.segment.dynamics.sdim
-        states = dv[:,i:j]
-
-        # extract controls
-        i = j; j +=  i + self.transcription.segment.dynamics.cdim
-        controls = dv[:,i:j]
+        states = sc[:, :self.transcription.segment.dynamics.sdim]
+        controls = sc[:, -1]
 
         # set transcription
         self.transcription.set(times, states, controls)
@@ -114,26 +113,23 @@ class Problem(object):
         # get collocation mismatch
         ec = self.transcription.mismatch().flatten()
 
-        # time mismatch
-        ic = np.array([times[i]-times[i+1] for i in range(self.transcription.N-1)], float)
+        # get objective
+        obj = np.array([
+            self.transcription.segment.dynamics.lagrangian(state, control)
+            for state, control in zip(states, controls)
+        ])
+        obj = np.trapz(obj, times)
 
-        # compute objective
-        obj = np.trapz(
-            self.transcription.segment.dynamics.lagrangian(states, controls),
-            times
-        )
+        # return fitness vector
+        return np.hstack(([obj], ec))
 
     def get_bounds(self):
 
-        lb = [
-            0,
-            *self.transcription.segment.dynamics.slb,
-            *self.transcription.segment.dynamics.clb
+        lb = [0] + [*self.transcription.segment.dynamics.slb,
+            self.transcription.segment.dynamics.clb
         ]*self.transcription.N
-        ub = [
-            0,
-            *self.transcription.segment.dynamics.sub,
-            *self.transcription.segment.dynamics.cub
+        ub = [100] + [*self.transcription.segment.dynamics.sub,
+            self.transcription.segment.dynamics.cub
         ]*self.transcription.N
 
         return lb, ub
@@ -142,31 +138,36 @@ class Problem(object):
         return 1
 
     def get_nec(self):
-        return self.transcription.N*self.transcription.segment.dynamics.sdim
-
-    def get_nix(self):
-        return self.transcription.N
+        return (self.transcription.N + 1)*self.transcription.segment.dynamics.sdim
 
     def gradient(self, z):
-        pg.estimate_gradient(self.fitness, z)
-
-
-
-
-
-
-
-
+        return pg.estimate_gradient(self.fitness, z)
 
 
 if __name__ == "__main__":
 
     from dynamics import Dynamics
     from segment import Segment
-    seg = Segment(Dynamics(), [0,0,0,0], [1,0,0,0], 0, 10)
-    disc = Hermite_Simpson(seg, 10)
-    t, s, u = disc.linear()
-    u = u.reshape(disc.N, 1)
-    z = np.hstack((t.reshape(disc.N, 1), s, u))
-    prob = Problem(disc)
-    print(prob.get_bounds())
+
+    seg   = Segment(Dynamics(), [0,0,0,0], [1,0,0,0], 0, 10000)
+    trans = Hermite_Simpson(seg, 10)
+    udp   = Problem(trans)
+
+    # decision vector
+    times, states, controls = trans.linear()
+    T = times[-1]
+    sc = np.hstack((states, controls.reshape((trans.N, 1))))
+    z = np.hstack(([T], sc.flatten()))
+    fit = udp.fitness(z)
+
+    trans.spline()
+
+    """
+    # solve
+    prob = pg.problem(udp)
+    pop = pg.population(prob, 50)
+    algo = pg.algorithm(pg.ipopt())
+    algo.set_verbosity(1)
+    print(pop)
+    algo.evolve(pop)
+    """
