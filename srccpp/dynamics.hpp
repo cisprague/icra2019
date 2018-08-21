@@ -21,17 +21,24 @@ namespace dynamics {
   const double uub(1);
 
   // state equations of motion
-  void eom_state(const std::vector<double> &x, const double &u, std::vector<double> &dxdt) {
+  std::vector<double> eom_state(const std::vector<double> &x, const double &u) {
+
+    std::vector<double> dxdt(xdim);
 
     dxdt[0] = x[1];
     dxdt[1] = u;
     dxdt[2] = x[3];
     dxdt[3] = std::sin(x[2]) - u*std::cos(x[2]);
+    
+    return dxdt;
 
   };
 
   // state equations of motion Jacobian
-  void eom_state_jac(const std::vector<double> &x, const double &u, std::vector<std::vector<double>> &ddxddt) {
+  std::vector<std::vector<double>> eom_state_jac(const std::vector<double> &x, const double &u) {
+
+    // Jacobian matrix
+    std::vector<std::vector<double>> ddxddt(xdim, std::vector<double>(xdim));
 
     ddxddt[0][0] = 0;
     ddxddt[0][1] = 1;
@@ -52,6 +59,8 @@ namespace dynamics {
     ddxddt[3][1] = 0;
     ddxddt[3][2] = u*std::sin(x[2]) + std::cos(x[2]);
     ddxddt[3][3] = 0;
+
+    return ddxddt;
 
   };
 

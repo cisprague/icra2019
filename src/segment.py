@@ -10,7 +10,7 @@ class Segment(object):
     conditions.
     '''
 
-    def __init__(self, dynamics, s0, sf, t0, tf):
+    def __init__(self, dynamics, s0, sf):
 
         # set internal dynamics
         self.dynamics = dynamics
@@ -18,14 +18,10 @@ class Segment(object):
         # set bounds
         self.set(s0, sf, t0, tf)
 
-    def set(self, s0, sf, t0, tf):
+    def set(self, s0, sf):
 
-        ''' Sets the initial and final states and times. '''
+        ''' Sets the initial and final states. '''
 
         # states
         self.s0 = np.array(s0, float)
         self.sf = np.array(sf, float)
-
-        # times
-        self.t0 = np.array(t0, float)
-        self.tf = np.array(tf, float)

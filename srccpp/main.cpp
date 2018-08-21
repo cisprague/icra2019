@@ -4,37 +4,36 @@
 #include <iostream>
 #include <vector>
 #include "dynamics.hpp"
+#include "direct.hpp"
+#include "utils.hpp"
 
 int main() {
 
   // state
-  std::vector<double> x{0.1, 0.2, 0.3, 0.4};
+  const std::vector<double> x{0.5, 0.1, 0.1, 0.1};
 
   // control
-  double u(0.5);
+  const double u(0.5);
 
-  // state transition array
-  std::vector<double> dxdt(dynamics::xdim);
+  // state transition
+  const std::vector<double> dxdt = dynamics::eom_state(x, u);
 
-  // state Jacobian array
-  std::vector<std::vector<double>> ddxddt(dynamics::xdim, std::vector<double>(dynamics::xdim));
+  // state jacobian
+  const std::vector<std::vector<double>> ddxddt = dynamics::eom_state_jac(x, u);
 
-  // compute state transition
-  dynamics::eom_state(x, u, dxdt);
+  // instantiate direct segment
+  direct seg(4, {0,0,0,0}, {1,0,0,0});
 
-  // compute Jacobian
-  dynamics::eom_state_jac(x, u, ddxddt);
+  // decision vector
+  const std::vector<double> dv{10, 0, 0.1, 0.2, 0.3, 0.5, 0.5, 0.5, 0.5};
 
-  for (int i=0; i<dynamics::xdim; i++) {
-    std::cout << dxdt[i];
-  };
-  std::cout << std::endl;
+  // fitness
+  std::vector<double> fit = seg.fitness(dv);
 
-  for (int i=0; i<dynamics::xdim; i++) {
-    for (int j=0; j<dynamics::xdim; j++) {
-      std::cout << ddxddt[i][j] << std::endl;
-    };
-  };
+  //utils::print(dxdt);
 
 
-}
+
+
+  return 0;
+};

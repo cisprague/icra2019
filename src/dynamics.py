@@ -8,16 +8,16 @@ class Dynamics(object):
     def __init__(self):
 
         # state and control dimensions
-        self.sdim = 4
-        self.cdim = 1
+        self.xdim = 4
+        self.udim = 1
 
         # state bounds
-        self.slb = [-5, -3, 0, -1]
-        self.sub = [5, 3, np.pi*2, 1]
+        self.xlb = [-5, -3, 0, -1]
+        self.xub = [5, 3, np.pi*2, 1]
 
         # control bounds
-        self.clb = -1
-        self.cub = 1
+        self.ulb = -1
+        self.uub = 1
 
 
     def eom_state(self, state, control):
