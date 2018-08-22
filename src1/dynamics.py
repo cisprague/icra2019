@@ -16,8 +16,8 @@ class Dynamics(object):
         self.xub = [10, 10, 2*np.pi, 10]
 
         # control bounds
-        self.ulb = -2
-        self.uub = 2
+        self.ulb = -1
+        self.uub = 1
 
     # equations of motion
     @staticmethod
