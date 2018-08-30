@@ -54,30 +54,13 @@ def homotopy(pair):
     print("Performing homotopy on pair: {}".format(pair))
 
     # instantiate segment
-    seg = Indirect(pair[0], pair[1], 1, 30)
+    seg = Indirect(pair[0], pair[1])
 
     # file name
     savef = "../data/homotopy/" + str(pair)
 
     # perform homotopy
-    dvs = seg.homotopy(verbose=True, iter=200, iter0=200, atol=1e-12, rtol=1e-12, lb=1, savef=savef)
-
-def main1(pair):
-
-    # instantiate segment
-    seg = Indirect(*pair, 1, 30)
-
-    # solve
-    while True:
-        dv, success = seg.solve(alpha=0, atol=1e-12, rtol=1e-12, otol=1e-5, lb=1, iter=200)
-        if success:
-            print("Found solution {}".format(dv))
-            break
-        else:
-            continue
-
-    # save solution
-    np.save("../data/qc/" + str(pair), dv)
+    dvs = seg.homotopy(verbose=True, iter=400, iter0=400, atol=1e-12, rtol=1e-12, lb=1, savef=savef)
 
 if __name__ == "__main__":
 

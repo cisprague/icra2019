@@ -79,7 +79,7 @@ class Indirect(Segment):
     def gradient(self, dv):
         return pg.estimate_gradient(self.fitness, dv)
 
-    def solve(self, alpha, Tlb=0, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-5, iter=200, dv=None, verbose=False):
+    def solve(self, alpha, Tlb=0, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-5, iter=200, dv=None, verbose=False, auto=False):
 
         # set homotopy parameter
         self.alpha = alpha
@@ -106,43 +106,50 @@ class Indirect(Segment):
         algo = pg.algorithm(algo)
         algo.set_verbosity(1)
 
-        # population
+        # supplied population
         if dv is not None:
             if verbose: print("Testing supplied decision vector: {}".format(dv))
             pop = pg.population(prob, 0)
             pop.push_back(dv)
             pop = algo.evolve(pop)
             feas = prob.feasibility_x(pop.champion_x)
-            if feas:
-                if verbose: print("Supplied decision vector is feasible!")
-                return pop.champion_x
-            else:
-                if verbose:
-                    print("Supplied decision vector is infeasble!")
-                    print("Trying random decision vectors now!")
+            if verbose:
+                print("Supplied decision vector was {}.".format("succesfull" if feas else "unsuccesfull"))
+            return pop.champion_x, feas
 
-        # solve until good
-        while True:
+        # random population
+        else:
             pop = pg.population(prob, 1)
             if verbose: print("Trying random decision vector {}.".format(pop.champion_x))
             pop = algo.evolve(pop)
             if verbose: print("Optimised decision vector now {}".format(pop.champion_x))
             feas = prob.feasibility_x(pop.champion_x)
-            if feas:
-                if verbose: print("Decision vector is feabible.")
-                return pop.champion_x
-            else:
-                if verbose:
-                    print("Decision vector is infeasbile!")
-                    print("Trying new random decision vector.")
+            if verbose:
+                print("Supplied decision vector was {}.".format("succesfull" if feas else "unsuccesfull"))
+            return pop.champion_x, feas
 
     def homotopy(self, atol=1e-10, rtol=1e-10, otol=1e-5, lb=1, iter0=200, iter=50, alpha0=0, verbose=False, savef=None):
 
-        # decision vector records
-        dvl = list()
+        # try to load prexisting record
+        try:
+            dva   = np.load(savef + ".npy")
+            dvo   = dva[-1,:-1]
+            alpha = dva[-1,-1]
+            if verbose:
+                print("Found prexisting homotopy!")
+                print("The last line is {}".format(dva[-1,:]))
 
-        # current homotopy parameter
-        alpha   = alpha0
+            if alpha == float(1) or alpha == int(1):
+                if verbose:
+                    print("This homotopy record is already optimised.")
+                return None
+        except:
+            if verbose:
+                print("No prexisting homotopy found at {}, creating one.".format(savef))
+            dva   = np.empty(shape=(0,self.xdim+1), dtype=float)
+            dvo   = None
+            alpha = alpha0
+
         # cut off homotopy parameter
         alphatol = 0.9999
         # optimal homotopy parameter
@@ -150,27 +157,39 @@ class Indirect(Segment):
 
         # initial solution
         if verbose: print("Solving for initial trajectory...")
+        i = 0
         while True:
-            dvo, success = self.solve(alpha=alpha, atol=atol, rtol=rtol, otol=otol, lb=lb, iter=iter0)
+            dvo, success = self.solve(dv=dvo, alpha=alpha, atol=atol, rtol=rtol, otol=otol, lb=lb, iter=iter0)
             if success:
                 if verbose: print("Found initial trajectory.")
                 break
-            elif verbose: print("Trying new decision vector.")
+            else:
+                i += 1
+                if verbose:
+                    print("Trying new decision vector.")
+                    print("{} unsuccesfull tries.".format(i))
+
+            if i > 100:
+                return None
+
         if verbose: print("Found DV = {}".format(dvo))
 
         # homotopy sequence
         if verbose: print("Initiating homotopy sequence...")
         i=0
         while True:
+
             dv, success = self.solve(dv=dvo, alpha=alpha, iter=iter, atol=atol, rtol=rtol)
+
             if success:
+
                 # record optimal paramters
                 if verbose: print("Success at {}, DV = {}".format(alpha, dv))
                 alphao = alpha
                 dvo    = dv
-                dvl.append(np.hstack((dvo, [alpha])))
+                dva = np.vstack((np.hstack((dvo, [alpha]))))
                 if savef is not None:
-                    np.save(savef, dvl)
+                    np.save(savef, dva)
 
                 # increase homotopy parameter
                 if alpha < alphatol:
@@ -187,6 +206,11 @@ class Indirect(Segment):
 
             # shrink homotopy parameter
             else:
+                if alpha == 1:
+                    i += 1
+                    if verbose: print("{} unsuccesfull TOC tries.".format(i))
+                if i > 10:
+                    return None
                 alpha = (alpha+alphao)/2
                 if verbose: print("Decreasing to {}".format(alpha))
 

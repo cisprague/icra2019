@@ -85,7 +85,7 @@ class Dynamics(object):
         else:
             # unbounded optimal control
             u = (lv-lomega*np.cos(theta))/(2*(alpha-1))
-            return min(max(u, -1), 1)
+            return min(max(u, self.ulb), self.uub)
 
     def hamiltonian(self, xl, u):
 
