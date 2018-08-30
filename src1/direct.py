@@ -4,6 +4,7 @@
 from segment import Segment
 import numpy as np, matplotlib.pyplot as plt, pygmo as pg
 from scipy.interpolate import CubicSpline
+from scipy.integrate import simps
 
 class Direct(Segment):
 
@@ -81,52 +82,6 @@ class Direct(Segment):
         # encode decision vector
         return self.encode(T, states, controls)
 
-    def plot_traj(self, states, interp=False, ax=None):
-
-        if ax is None:
-            fig, ax = plt.subplots(1)
-
-        # endpoint positions
-        x = states[:,0] + np.sin(states[:,2])
-        y = np.cos(states[:,2])
-
-        # plot positions
-        ax.plot(x, y, "k.-")
-
-        # number of nodes
-        N = len(states)
-
-        # plot arm
-        for i in range(N):
-            ax.plot([x[i], states[i, 0]], [y[i], 0], "k.-")
-
-        # plot interpolant if desired
-        if interp:
-            states = CubicSpline(np.linspace(0,1,N), np.vstack((x, y)).T, bc_type="natural")(np.linspace(0,1,1000))
-            ax.plot(states[:,0], states[:,1], "k--")
-
-        return ax
-
-    def plot_timeline(self, times, states, controls, interp=False, ax=None):
-
-        if ax is None:
-            fig, ax = plt.subplots(self.xdim+self.udim, sharex=True)
-
-        for i in range(self.xdim):
-            ax[i].plot(times, states[:,i], "k.-")
-
-        ax[-1].plot(times, controls, "k.-")
-
-        if interp:
-            timesn = np.linspace(times[0], times[-1], 1000)
-            statesn = CubicSpline(times, states, bc_type="natural")(timesn)
-            controlsn = CubicSpline(times, controls, bc_type="natural")(timesn)
-            for i in range(self.xdim):
-                ax[i].plot(timesn, statesn[:, i], "k--")
-            ax[-1].plot(timesn, controlsn, "k--")
-
-        return ax
-
     def get_bounds(self):
         lb = [self.Tlb] + ([*self.xlb] + [self.ulb])*self.N
         ub = [self.Tub] + ([*self.xub] + [self.uub])*self.N
@@ -166,7 +121,8 @@ class Direct(Segment):
             f05 = self.eom(x05, u05)
 
             # objective
-            J += h*(u0**2 + 4*u05**2 + u1**2)/6
+            if self.obj == 'energy':
+                J += h*(u0**2 + 4*u05**2 + u1**2)/6
 
             # mismatch
             ec[k] = h*(f0 + 4*f05 + f1)/6 + x0 - x1
@@ -174,6 +130,10 @@ class Direct(Segment):
         # terminal constraints
         ec[-2] = self.x0 - states[0]
         ec[-1] = self.xf - states[-1]
+
+        # duration optimisation
+        if self.obj == 'time':
+            J = dv[0]
 
         # return fitness vector
         fit = np.hstack(([J], ec.flatten()))
@@ -188,7 +148,7 @@ class Direct(Segment):
     def gradient(self, dv):
         return pg.estimate_gradient(self.fitness, dv)
 
-    def solve(self, inp):
+    def solve(self, inp, obj='energy'):
 
         # if guess
         if isinstance(inp, int):
@@ -198,6 +158,13 @@ class Direct(Segment):
             times, h, states, controls = self.decode(inp)
             self.N = len(states)
             guess = True
+
+        if obj == 'energy':
+            self.obj = 'energy'
+        elif obj == 'time':
+            self.obj = 'time'
+        else:
+            raise ValueError("Object must be 'energy' or 'time'.")
 
         # problem
         prob = pg.problem(self)

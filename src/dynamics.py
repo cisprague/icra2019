@@ -12,7 +12,7 @@ class Dynamics(object):
         self.udim = 1
 
         # state bounds
-        self.xlb = [-5, -3, 0, -1]
+        self.xlb = [-5, -3, -np.pi*2, -1]
         self.xub = [5, 3, np.pi*2, 1]
 
         # control bounds
