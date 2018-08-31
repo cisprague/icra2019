@@ -79,7 +79,7 @@ class Indirect(Segment):
     def gradient(self, dv):
         return pg.estimate_gradient(self.fitness, dv)
 
-    def solve(self, alpha, Tlb=0, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-5, iter=200, dv=None, verbose=False, auto=False):
+    def solve(self, alpha, Tlb=1, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-5, iter=200, dv=None, verbose=False, auto=False):
 
         # set homotopy parameter
         self.alpha = alpha
@@ -130,9 +130,13 @@ class Indirect(Segment):
 
     def homotopy(self, atol=1e-10, rtol=1e-10, otol=1e-5, lb=1, iter0=200, iter=50, alpha0=0, verbose=False, savef=None):
 
+        dva = list()
+
         # try to load prexisting record
         try:
+            if verbose: print("Trying to load prexisting homotopy.")
             dva   = np.load(savef + ".npy")
+            #dva = dva.reshape((-1, self.xdim + 1))
             dvo   = dva[-1,:-1]
             alpha = dva[-1,-1]
             if verbose:
@@ -159,7 +163,7 @@ class Indirect(Segment):
         if verbose: print("Solving for initial trajectory...")
         i = 0
         while True:
-            dvo, success = self.solve(dv=dvo, alpha=alpha, atol=atol, rtol=rtol, otol=otol, lb=lb, iter=iter0)
+            dvo, success = self.solve(alpha, dv=dvo, atol=atol, rtol=rtol, otol=otol, lb=lb, iter=iter0, Tlb=2, Tub=24)
             if success:
                 if verbose: print("Found initial trajectory.")
                 break
@@ -179,7 +183,7 @@ class Indirect(Segment):
         i=0
         while True:
 
-            dv, success = self.solve(dv=dvo, alpha=alpha, iter=iter, atol=atol, rtol=rtol)
+            dv, success = self.solve(alpha, dv=dvo, iter=iter, atol=atol, rtol=rtol, Tlb=2, Tub=24)
 
             if success:
 
@@ -187,9 +191,9 @@ class Indirect(Segment):
                 if verbose: print("Success at {}, DV = {}".format(alpha, dv))
                 alphao = alpha
                 dvo    = dv
-                dva = np.vstack((np.hstack((dvo, [alpha]))))
+                dva.append(np.hstack((dv, [alpha])))
                 if savef is not None:
-                    np.save(savef, dva)
+                    np.save(savef, np.array(dva))
 
                 # increase homotopy parameter
                 if alpha < alphatol:

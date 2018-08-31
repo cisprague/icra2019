@@ -60,7 +60,7 @@ def homotopy(pair):
     savef = "../data/homotopy/" + str(pair)
 
     # perform homotopy
-    dvs = seg.homotopy(verbose=True, iter=400, iter0=400, atol=1e-12, rtol=1e-12, lb=1, savef=savef)
+    dvs = seg.homotopy(verbose=True, iter=1000, iter0=400, atol=1e-12, rtol=1e-12, lb=1, savef=savef)
 
 if __name__ == "__main__":
 
