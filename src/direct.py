@@ -1,173 +1,215 @@
 # Christopher Iliffe Sprague
 # christopher.iliffe.sprague@gmail.com
 
-import numpy as np
-import pygmo as pg
-from scipy.interpolate import spline
+from segment import Segment
+import numpy as np, matplotlib.pyplot as plt, pygmo as pg
+from scipy.interpolate import CubicSpline
+from scipy.integrate import simps
 
-class Direct(object):
+class Direct(Segment):
 
-    def __init__(self, segment, N):
+    def __init__(self, x0, xf, Tlb, Tub):
+        Segment.__init__(self, x0, xf)
+        self.Tlb, self.Tub = Tlb, Tub
 
-        # assign segment
-        self.segment = segment
-
-        # number of segments
-        self.N = int(N)
-
-        # initialise grids
-        self.set(*self.linear())
-
-    def set(self, times, states, controls):
-
-        # assign arrays
-        self.times    = np.array(times, float)
-        self.states   = np.array(states, float)
-        self.controls = np.array(controls, float)
-
-    def linear(self):
-
-        # linearly interpolate with N points
-        times    = np.linspace(self.segment.t0, self.segment.tf, self.N)
-        states   = np.vstack((
-            np.linspace(self.segment.s0[i], self.segment.sf[i], self.N)
-            for i in range(self.segment.dynamics.sdim)
-        )).T
-        controls = np.random.uniform(
-            self.segment.dynamics.clb,
-            self.segment.dynamics.cub,
-            self.N)
-        return times, states, controls
-
-    def mismatch(self):
-
-        # equality constraint array
-        ceq = np.empty((self.N + 1, self.segment.dynamics.sdim), float)
-
-        for i in range(self.N-1):
-            ceq[i] = self.quadrature(
-                self.states[i], self.states[i+1],
-                self.controls[i], self.controls[i+1],
-                self.times[i+1] - self.times[i]
-            ) - self.states[i+1]
-
-        # terminal constraints
-        ceq[self.N-1] = np.array(self.states[0]-self.segment.s0)
-        ceq[self.N]   = np.array(self.states[-1]-self.segment.sf)
-
-        # return constraints vector
-        return ceq
-
-
-class Hermite_Simpson(Direct):
-
-    def __init__(self, dynamics, N):
-
-        # initialise as direct segment
-        Direct.__init__(self, dynamics, N)
-
-    def quadrature(self, s0, s1, u0, u1, h0):
-
-        '''
-        Returns definite integral approximation between two states and times.
-        '''
-
-        f0  = self.segment.dynamics.eom_state(s0, u0)
-        f1  = self.segment.dynamics.eom_state(s1, u1)
-        s05 = (s0 + s1)/2. + h0*(f0 + f1)/8.
-        u05 = (u0 + u1)/2.
-        f05 = self.segment.dynamics.eom_state(s05, u0)
-        return s0 + h0*(f0 + 4.*f05 + f1)/6.
-
-class Problem(object):
-
-    def __init__(self, transcription):
-
-        # assign direct transcription
-        self.transcription = transcription
-
-    def fitness(self, z):
-
-
-        '''
-        Fitness vector:
-        [T,s0,u0,...,sf,uf]
-        '''
-
-        # times
-        T = z[0]
-        times = np.linspace(0, T, self.transcription.N)
+    def encode(self, T, states, controls):
 
         # states and controls
-        sc = z[1:].reshape((
-            self.transcription.N,
-            self.transcription.segment.dynamics.sdim +
-            self.transcription.segment.dynamics.cdim
-        ))
-        states = sc[:, :self.transcription.segment.dynamics.sdim]
+        sc = np.hstack((states, controls.reshape((-1, 1))))
+
+        # return decision vector
+        return np.hstack(([T], sc.flatten()))
+
+    def decode(self, dv):
+
+        # duration
+        T = dv[0]
+
+        # states and controls
+        sc = dv[1:].reshape((-1, self.xdim + self.udim))
+
+        # number of nodes
+        N = len(sc)
+
+        # time grid
+        times, h = np.linspace(0, T, N, retstep=True)
+
+        # states
+        states = sc[:, :self.xdim]
+
+        # controls
         controls = sc[:, -1]
 
-        # set transcription
-        self.transcription.set(times, states, controls)
+        return times, h, states, controls
 
-        # get collocation mismatch
-        ec = self.transcription.mismatch().flatten()
+    def interpolate(self, dv, N):
 
-        # get objective
-        obj = np.array([
-            self.transcription.segment.dynamics.lagrangian(state, control)
-            for state, control in zip(states, controls)
-        ])
-        obj = np.trapz(obj, times)
+        # decode decision vector
+        times, h, states, controls = self.decode(dv)
 
-        # return fitness vector
-        return np.hstack(([obj], ec))
+        # new times
+        timesn = np.linspace(times[0], times[-1], N)
+
+        # new states
+        statesn = CubicSpline(times, states, bc_type="natural")(timesn)
+        statesn = np.vstack((
+            np.clip(statesn[:,i], self.xlb[i], self.xub[i]) for i in range(self.xdim)
+        )).T
+
+        # new controls
+        controlsn = CubicSpline(times, controls, bc_type="natural")(timesn)
+        controlsn = np.clip(controlsn, self.ulb, self.uub)
+
+        # encode decision vector
+        return self.encode(times[-1], statesn, controlsn)
+
+    def linear_guess(self, N, T=None):
+
+        # states
+        states = np.vstack((
+            np.linspace(l, u, N) for l, u in zip(self.x0, self.xf)
+        )).T
+
+        # controls
+        controls = np.random.uniform(self.ulb, self.uub, N)
+
+        # duration
+        if T is None:
+            T = np.random.uniform(self.Tlb, self.Tub)
+        else:
+            T = T
+
+        # encode decision vector
+        return self.encode(T, states, controls)
 
     def get_bounds(self):
-
-        lb = [0] + [*self.transcription.segment.dynamics.slb,
-            self.transcription.segment.dynamics.clb
-        ]*self.transcription.N
-        ub = [100] + [*self.transcription.segment.dynamics.sub,
-            self.transcription.segment.dynamics.cub
-        ]*self.transcription.N
-
+        lb = [self.Tlb] + ([*self.xlb] + [self.ulb])*self.N
+        ub = [self.Tub] + ([*self.xub] + [self.uub])*self.N
         return lb, ub
+
+    def fitness(self, dv):
+
+        # decode decision vector
+        times, h, states, controls = self.decode(dv)
+
+        # object function
+        J = 0
+
+        # equality constraints
+        ec = np.empty((self.N+1, self.xdim), float)
+
+        # hermite simpson collocation
+        for k in range(self.N-1):
+
+            # initial, middle, and terminal controls
+            u0  = controls[k]
+            u1  = controls[k+1]
+            u05 = (u0 + u1)/2
+
+            # initial and terminal states
+            x0 = states[k]
+            x1 = states[k+1]
+
+            # initial and terminal dynamics
+            f0 = self.eom(x0, u0)
+            f1 = self.eom(x1, u1)
+
+            # middle state
+            x05 = (x0 + x1)/2 + h*(f0-f1)/8
+
+            # middle dynamics
+            f05 = self.eom(x05, u05)
+
+            # objective
+            if self.obj == 'energy':
+                J += h*(u0**2 + 4*u05**2 + u1**2)/6
+
+            # mismatch
+            ec[k] = h*(f0 + 4*f05 + f1)/6 + x0 - x1
+
+        # terminal constraints
+        ec[-2] = self.x0 - states[0]
+        ec[-1] = self.xf - states[-1]
+
+        # duration optimisation
+        if self.obj == 'time':
+            J = dv[0]
+
+        # return fitness vector
+        fit = np.hstack(([J], ec.flatten()))
+        return fit
 
     def get_nobj(self):
         return 1
 
     def get_nec(self):
-        return (self.transcription.N + 1)*self.transcription.segment.dynamics.sdim
+        return self.xdim*(self.N+1)
 
-    def gradient(self, z):
-        return pg.estimate_gradient(self.fitness, z)
+    def gradient(self, dv):
+        return pg.estimate_gradient(self.fitness, dv)
 
+    def solve(self, inp, obj='energy'):
+
+        # if guess
+        if isinstance(inp, int):
+            self.N = inp
+            guess = False
+        elif inp is not None:
+            times, h, states, controls = self.decode(inp)
+            self.N = len(states)
+            guess = True
+
+        if obj == 'energy':
+            self.obj = 'energy'
+        elif obj == 'time':
+            self.obj = 'time'
+        else:
+            raise ValueError("Object must be 'energy' or 'time'.")
+
+        # problem
+        prob = pg.problem(self)
+
+        # population
+        if guess:
+            pop = pg.population(prob, 0)
+            pop.push_back(inp)
+        else:
+            pop = pg.population(prob, 1)
+
+        # algorithm
+        algo = pg.ipopt()
+        algo.set_numeric_option("tol", 1e-8)
+        algo = pg.algorithm(algo)
+        algo.set_verbosity(1)
+
+        # evolve population
+        pop = algo.evolve(pop)
+
+        # return decision vector
+        return pop.champion_x
 
 if __name__ == "__main__":
 
-    from dynamics import Dynamics
-    from segment import Segment
+    # instantiate segment
+    seg = Direct([0,0,np.pi,0],[1,0,0,0],50)
 
-    seg   = Segment(Dynamics(), [0,0,0,0], [1,0,0,0], 0, 10000)
-    trans = Hermite_Simpson(seg, 10)
-    udp   = Problem(trans)
+    # duration guess
+    T = 3
 
-    # decision vector
-    times, states, controls = trans.linear()
-    T = times[-1]
-    sc = np.hstack((states, controls.reshape((trans.N, 1))))
-    z = np.hstack(([T], sc.flatten()))
-    fit = udp.fitness(z)
+    # linear state guess
+    states = np.vstack((
+        np.linspace(l, u, seg.N) for l,u in zip(seg.x0, seg.xf)
+    )).T
 
-    trans.spline()
+    # random controls
+    controls = np.random.random(seg.N)
+    print(controls)
 
+    # PyGMO
     """
-    # solve
-    prob = pg.problem(udp)
-    pop = pg.population(prob, 50)
+    prob = pg.problem(seg)
+    pop  = pg.population(prob, 1)
     algo = pg.algorithm(pg.ipopt())
     algo.set_verbosity(1)
-    print(pop)
-    algo.evolve(pop)
+    pop = algo.evolve(pop)
     """

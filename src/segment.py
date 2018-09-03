@@ -2,26 +2,11 @@
 # christopher.iliffe.sprague@gmail.com
 
 import numpy as np
+from dynamics import Dynamics
 
-class Segment(object):
+class Segment(Dynamics):
 
-    '''
-    Represents a single trajectory segment, characterised by two boundary
-    conditions.
-    '''
-
-    def __init__(self, dynamics, s0, sf):
-
-        # set internal dynamics
-        self.dynamics = dynamics
-
-        # set bounds
-        self.set(s0, sf, t0, tf)
-
-    def set(self, s0, sf):
-
-        ''' Sets the initial and final states. '''
-
-        # states
-        self.s0 = np.array(s0, float)
-        self.sf = np.array(sf, float)
+    def __init__(self, x0, xf):
+        Dynamics.__init__(self)
+        self.x0 = np.array(x0, float)
+        self.xf = np.array(xf, float)

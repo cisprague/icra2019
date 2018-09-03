@@ -32,7 +32,7 @@ class Indirect(Segment):
             lambda t, xl: self.eom_fullstate(xl, self.pmp(xl, alpha)),
             (0, T),
             np.hstack((self.x0, l0)),
-            method='RK45',
+            method='LSODA',
             atol=atol,
             rtol=rtol,
             jac=lambda t, xl: self.eom_fullstate_jac(xl, self.pmp(xl, alpha))
@@ -79,7 +79,7 @@ class Indirect(Segment):
     def gradient(self, dv):
         return pg.estimate_gradient(self.fitness, dv)
 
-    def solve(self, alpha, Tlb=1, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-5, iter=200, dv=None, verbose=False, auto=False):
+    def solve(self, alpha, Tlb=1, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-2, iter=200, dv=None, verbose=False, auto=False):
 
         # set homotopy parameter
         self.alpha = alpha
@@ -97,11 +97,11 @@ class Indirect(Segment):
 
         # problem
         prob = pg.problem(self)
-        prob.c_tol = otol
+        prob.c_tol = 1e-5
 
         # algorithm
         algo = pg.ipopt()
-        algo.set_numeric_option("tol", otol)
+        algo.set_numeric_option("acceptable_tol", otol)
         algo.set_integer_option("max_iter", iter)
         algo = pg.algorithm(algo)
         algo.set_verbosity(1)
@@ -128,72 +128,103 @@ class Indirect(Segment):
                 print("Supplied decision vector was {}.".format("succesfull" if feas else "unsuccesfull"))
             return pop.champion_x, feas
 
-    def homotopy(self, atol=1e-10, rtol=1e-10, otol=1e-5, lb=1, iter0=200, iter=50, alpha0=0, verbose=False, savef=None):
+    def homotopy(self, atol=1e-10, rtol=1e-10, otol=1e-4, lb=1, iter0=200, iter=100, verbose=False, fname=None):
 
-        dva = list()
-
-        # try to load prexisting record
+        # try to load prexisting array
         try:
-            if verbose: print("Trying to load prexisting homotopy.")
-            dva   = np.load(savef + ".npy")
-            #dva = dva.reshape((-1, self.xdim + 1))
-            dvo   = dva[-1,:-1]
-            alpha = dva[-1,-1]
-            if verbose:
-                print("Found prexisting homotopy!")
-                print("The last line is {}".format(dva[-1,:]))
 
-            if alpha == float(1) or alpha == int(1):
+            # load array - breaks if file doesn't work
+            dvah = np.load(fname + '.npy')
+            # last optimal decision vector
+            dvo   = dvah[-1,:-1]
+            # last optimal homotopy parameter
+            alpha = dvah[-1,-1]
+
+            # if succesfully loaded
+            if verbose:
+                print("Found prexisting trajectory.")
+                print("The last line is {}".format(dvah[-1,:]))
+
+            # if bang bang control is already achieved
+            if alpha == 1:
                 if verbose:
-                    print("This homotopy record is already optimised.")
+                    print("Homotopy record already optimised.")
+                # nothing to be done
                 return None
+
+        # no prexisting array found
         except:
             if verbose:
-                print("No prexisting homotopy found at {}, creating one.".format(savef))
-            dva   = np.empty(shape=(0,self.xdim+1), dtype=float)
-            dvo   = None
-            alpha = alpha0
+                print("Prexisting array not found.")
+            # new homotopy record list
+            dvah = np.empty(shape=(0,self.xdim+2), dtype=float)
+            # optimal decision vector not known yet
+            dvo = None
+            # homotopy parameter of zero
+            alpha = 0
 
-        # cut off homotopy parameter
+
+        # homotopy parameter at which to assume bang-bang
         alphatol = 0.9999
-        # optimal homotopy parameter
+        # best homotopy parameter so far
         alphao = 0
 
-        # initial solution
-        if verbose: print("Solving for initial trajectory...")
+
+        # find initial solution or polish prexisting
+        if verbose: print("Solving initial trajectory...")
+        # try 100 times
         i = 0
-        while True:
-            dvo, success = self.solve(alpha, dv=dvo, atol=atol, rtol=rtol, otol=otol, lb=lb, iter=iter0, Tlb=2, Tub=24)
+        while i < 100:
+
+            # solve prescribed trajectory 5 times
+            if i < 5:
+                dvo, success = self.solve(alpha, dv=dvo, atol=atol, rtol=rtol, otol=otol, lb=lb, iter=iter0, Tlb=2, Tub=25)
+
+            # solve with random DV
+            else:
+                dvo, success = self.solve(alpha, dv=None, atol=atol, rtol=rtol, otol=otol, lb=lb, iter=iter0, Tlb=2, Tub=25)
+
+            # break if it was succesfull
             if success:
-                if verbose: print("Found initial trajectory.")
+                if verbose:
+                    print("Found initial DV = {}".format(dvo))
                 break
+
+            # increment the failure counter if the solution failed
             else:
                 i += 1
                 if verbose:
                     print("Trying new decision vector.")
                     print("{} unsuccesfull tries.".format(i))
 
+            # quite if over 100 tries
             if i > 100:
                 return None
-
-        if verbose: print("Found DV = {}".format(dvo))
 
         # homotopy sequence
         if verbose: print("Initiating homotopy sequence...")
         i=0
         while True:
 
-            dv, success = self.solve(alpha, dv=dvo, iter=iter, atol=atol, rtol=rtol, Tlb=2, Tub=24)
+            # solve trajectory
+            dv, success = self.solve(alpha, dv=dvo, iter=iter, atol=atol, rtol=rtol, Tlb=2, Tub=30)
 
+            # if solution succesfull
             if success:
 
                 # record optimal paramters
                 if verbose: print("Success at {}, DV = {}".format(alpha, dv))
+
+                # best decision vector and homotopy parameter
                 alphao = alpha
-                dvo    = dv
-                dva.append(np.hstack((dv, [alpha])))
-                if savef is not None:
-                    np.save(savef, np.array(dva))
+                dvo    = np.copy(dv)
+
+                # record decision vector and homotopy parameter
+                dvah = np.vstack((dvah, np.hstack((dvo, [alphao]))))
+
+                # save if file name given
+                if fname is not None:
+                    np.save(fname + '.npy', dvah)
 
                 # increase homotopy parameter
                 if alpha < alphatol:
@@ -201,22 +232,32 @@ class Indirect(Segment):
                     if verbose: print("Increasing to {}".format(alpha))
 
                 # full homotopy parameter value
-                elif alpha >= alphatol:
+                elif alpha >= alphatol and alpha < 1:
                     if verbose: print("Solving for bang-bang...")
                     alpha = 1
+
+                # if full bang bang
                 elif alpha == 1:
                     if verbose: print("Found bang-bang...")
-                    return np.array(dvl)
+                    return dvah
 
             # shrink homotopy parameter
             else:
+
+                # unsuccesfull bang-bang try
                 if alpha == 1:
                     i += 1
-                    if verbose: print("{} unsuccesfull TOC tries.".format(i))
-                if i > 10:
-                    return None
+                    if verbose:
+                        print("{} unsuccesfull TOC tries.".format(i))
+
+                # 10 unsuccesfull bang bang tries
+                if i == 10:
+                    return dvah
+
+                # decrease homotopy parameter
                 alpha = (alpha+alphao)/2
-                if verbose: print("Decreasing to {}".format(alpha))
+                if verbose:
+                    print("Decreasing to {}".format(alpha))
 
     def random_walk(self, T, xl0, alpha, dx=0.01, atol=1e-10, rtol=1e-10, iter=10, verbose=False, npts=20):
 
@@ -303,6 +344,46 @@ class Indirect(Segment):
 
     def random_walk_args(self, args):
         return self.random_walk(*args)
+
+    def plot_homotopy(self, dvah, ax=None):
+
+        # if axis is given
+        if ax is None:
+            fig, ax = plt.subplots(1)
+
+        # number of trajectories in homotopy sequence
+        n = len(dvah)
+
+        # iterate through trajectories
+        for i in range(n):
+
+            # decision vector
+            dv = dvah[i,:-1]
+
+            # homotopy parameter
+            alpha = dvah[i,-1]
+
+            # decode decision vector
+            T, l0 = self.decode(dv)
+
+            # propagate trajectory
+            tl, xl, ul = self.propagate(T, l0, alpha, controls=True)
+
+            # compute endpoints
+            x = xl[:,0] + np.sin(xl[:,2])
+            y = np.cos(xl[:,2])
+
+            # plot trajectory
+            ax.plot(x, y, "k-", alpha=0.2)
+            ax.set_aspect('equal')
+        return ax
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
 

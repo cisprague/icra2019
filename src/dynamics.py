@@ -1,128 +1,139 @@
 # Christopher Iliffe Sprague
 # christopher.iliffe.sprague@gmail.com
 
-import numpy as np
+import numpy as np, matplotlib.pyplot as plt
+from scipy.interpolate import CubicSpline
 
 class Dynamics(object):
 
-    def __init__(self):
+    def __init__ (self):
 
         # state and control dimensions
         self.xdim = 4
         self.udim = 1
 
         # state bounds
-        self.xlb = [-5, -3, -np.pi*2, -1]
-        self.xub = [5, 3, np.pi*2, 1]
+        self.xlb = np.array([-5, -5, -2*np.pi, -3])
+        self.xub = np.array([5, 5, 2*np.pi, 3])
 
         # control bounds
-        self.ulb = -1
-        self.uub = 1
+        self.ub = 1
 
+    # equations of motion
+    def eom(self, x, u):
 
-    def eom_state(self, state, control):
+        # extract state
+        x, v, theta, omega = x
 
-        # extract states variables
-        y, dy, theta, dtheta = state
+        # return state transition
+        return np.array([v, u, omega, np.sin(theta) - u*np.cos(theta)], float)
 
-        # extract control input
-        v = control
+    def eom_fullstate(self, xl, u):
 
-        # return equations of motion
-        return np.array([
-            dy,
-            v,
-            dtheta,
-            np.sin(theta) - v*np.cos(theta)
-        ], float)
-
-    def eom_state_jac(self, state, control):
-
-        # extract states variables
-        y, dy, theta, dtheta = state
-
-        # extract control input
-        v = control
-
-        # return the Jacobian matrix
-        return np.array([
-            [0, 1, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 1],
-            [0, 0, v*np.sin(theta) + np.cos(theta), 0]
-        ], float)
-
-    def eom_fullstate(self, state, control):
-
-        # extract fullstate variables
-        y, dy, theta, dtheta, ly, ldy, ltheta, ldtheta = state
-
-        # extract control input
-        v = control
+        # extract fullstate
+        x, v, theta, omega, lx, lv, ltheta, lomega = xl
 
         # common subexpression elimination
-        x0 = np.sin(theta)
-        x1 = np.cos(theta)
+        e0 = np.sin(theta)
+        e1 = np.cos(theta)
 
-        # return state transition matrix
+        # fullstate transition
         return np.array([
-            dy,
             v,
-            dtheta,
-            -v*x1 + x0,
+            u,
+            omega,
+            e0 - u*e1,
             0,
-            -ly,
-            -ldtheta*(v*x0 + x1),
+            -lx,
+            -lomega*(u*e0 + e1),
             -ltheta
         ], float)
 
-    def eom_fullstate_jac(self, fullstate, control):
+    def eom_fullstate_jac(self, xl, u):
 
-        # extract fullstate variables
-        y, dy, theta, dtheta, ly, ldy, ltheta, ldtheta = fullstate
+        e0 = np.cos(xl[2])
+        e1 = np.sin(xl[2])
+        e2 = u*e1
 
-        # extract control input
-        v = control
-
-        # common subexpression elimination
-        x0 = np.cos(theta)
-        x1 = np.sin(theta)
-        x2 = v*x1
-
-        # return fullstate Jacobian
         return np.array([
-            [0, 1,                                 0, 0,  0, 0,  0,        0],
-            [0, 0,                                 0, 0,  0, 0,  0,        0],
-            [0, 0,                                 0, 1,  0, 0,  0,        0],
-            [0, 0,                           x0 + x2, 0,  0, 0,  0,        0],
-            [0, 0,                                 0, 0,  0, 0,  0,        0],
-            [0, 0,                                 0, 0, -1, 0,  0,        0],
-            [0, 0,              ldtheta*(-v*x0 + x1), 0,  0, 0,  0, -x0 - x2],
-            [0, 0,                                 0, 0,  0, 0, -1,        0]
+            [0, 1,                           0, 0,  0, 0,  0,        0],
+            [0, 0,                           0, 0,  0, 0,  0,        0],
+            [0, 0,                           0, 1,  0, 0,  0,        0],
+            [0, 0,                     e0 + e2, 0,  0, 0,  0,        0],
+            [0, 0,                           0, 0,  0, 0,  0,        0],
+            [0, 0,                           0, 0, -1, 0,  0,        0],
+            [0, 0,          -xl[7]*(u*e0 - e1), 0,  0, 0,  0, -e0 - e2],
+            [0, 0,                           0, 0,  0, 0, -1,        0]
         ], float)
 
-    def pontryagin(self, fullstate, alpha, bound=False):
+    def pmp(self, xl, alpha):
 
-        # extract fullstate variables
-        y, dy, theta, dtheta, ly, ldy, ltheta, ldtheta = fullstate
+        # extract fullstate
+        x, v, theta, omega, lx, lv, ltheta, lomega = xl
 
-        # compute optimal control
-        uo = (alpha - ldtheta*np.cos(theta) + ldy)/(2*(alpha - 1))
+        # time optimal control
+        if alpha == 1:
 
-        if bound:
-            return min(max(uo, -1), 1)
+            return -self.ub*np.sign(lomega*np.cos(theta)-lv)
+
         else:
-            return uo
+            # unbounded optimal control
+            u = (lv-lomega*np.cos(theta))/(2*(alpha-1))
+            return min(max(u, -self.ub), self.ub)
 
-    def hamiltonian(self, fullstate, control, alpha):
+    def hamiltonian(self, xl, u):
 
-        # extract fullstate variables
-        y, dy, theta, dtheta, ly, ldy, ltheta, ldtheta = fullstate
+        # extract fullstate
+        x, v, theta, omega, lx, lv, ltheta, lomega = xl
 
-        # extract control input
-        v = control
+        return lomega*(-u*np.cos(theta) + np.sin(theta)) + \
+        ltheta*omega + lv*u + lx*v + u**2
 
-        # return Hamiltonian
-        return alpha*v + dtheta*ltheta + dy*ly + \
-            ldtheta*(-v*np.cos(theta) + np.sin(theta)) + ldy*v + \
-            v**2*(-alpha + 1)
+    def plot_traj(self, states, interp=False, ax=None, arm=True, pts=True):
+
+        if ax is None:
+            fig, ax = plt.subplots(1)
+
+        # endpoint positions
+        x = states[:,0] + np.sin(states[:,2])
+        y = np.cos(states[:,2])
+
+        # number of nodes
+        N = len(states)
+
+        # plot arm
+        if arm:
+            for i in range(N):
+                ax.plot([x[i], states[i, 0]], [y[i], 0], "k.-", alpha=0.1)
+
+        if pts:
+            ax.plot(x, y, "k.-")
+
+        # plot interpolant if desired
+        if interp:
+            states = CubicSpline(np.linspace(0,1,N), np.vstack((x, y)).T, bc_type="natural")(np.linspace(0,1,1000))
+            ax.plot(states[:,0], states[:,1], "k--")
+
+        ax.set_aspect('equal')
+
+        return ax
+
+    def plot_timeline(self, times, states, controls, interp=False, ax=None, mark="k-"):
+
+        if ax is None:
+            fig, ax = plt.subplots(self.xdim+self.udim, sharex=True)
+
+        for i in range(self.xdim):
+            ax[i].plot(times, states[:,i], mark)
+
+        ax[-1].plot(times, controls, mark)
+
+        if interp:
+            timesn = np.linspace(times[0], times[-1], 1000)
+            statesn = CubicSpline(times, states, bc_type="natural")(timesn)
+            controlsn = CubicSpline(times, controls, bc_type="natural")(timesn)
+            for i in range(self.xdim):
+                ax[i].plot(timesn, statesn[:, i], "k--")
+            ax[-1].plot(timesn, controlsn, "k--")
+
+        return ax
