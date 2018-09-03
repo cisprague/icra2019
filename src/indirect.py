@@ -259,13 +259,34 @@ class Indirect(Segment):
                 if verbose:
                     print("Decreasing to {}".format(alpha))
 
-    def random_walk(self, T, xl0, alpha, dx=0.01, atol=1e-10, rtol=1e-10, iter=10, verbose=False, npts=20):
+    def sample_traj(self, tln, xln, nn=20):
 
-        # decision vector and initial state list
-        dvl, x0l = list(), list()
+        # number of integration nodes
+        n = len(tln)
 
-        # initial state
-        x0 = xl0[:self.xdim]
+        # indicies
+        ind = np.linspace(0, n-int(0.1*n), nn, dtype=int)
+
+        # sample times and trajectory
+        tls = tln[ind]
+        xls = xln[ind,:]
+
+        # nominal duration
+        T = tln[-1]
+
+        # durations for each sample
+        Tls = T - tls
+
+        # return durations and fullstates
+        return Tls, xls
+
+    def random_walk(self, T, xl0, alpha, dx=0.01, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=20):
+
+        # save original initial state
+        x0 = np.copy(self.x0)
+
+        # set initial state
+        self.x0 = xl0[:self.xdim]
 
         # initial costate
         l0 = xl0[self.xdim:]
@@ -273,28 +294,39 @@ class Indirect(Segment):
         # decision vector
         dvo = self.encode(T, l0)
 
-        xold = np.copy(self.x0)
+        # decision vector and initial state records
+        dvl = np.empty(shape=(0,self.xdim+1), dtype=float)
+        x0l = np.empty(shape=(0,self.xdim), dtype=float)
 
         # random walk sequence
         i, j = 0, 0
         if verbose: print("Beginning random walk from {}".format(xl0))
         while True:
+
             # original initial state
             xo = np.copy(self.x0)
-            print(self.x0)
             self.x0 += (self.xlb - self.xub)*np.random.uniform(-dx, dx, self.xdim)
-            print(self.x0)
             dv, feas = self.solve(dv=dvo, alpha=alpha, iter=iter)
 
             # if succesfull
             if feas:
+
+                # increment succeses
                 i += 1
+                # reset failures
                 j = 0
-                dvl.append(np.copy(dv))
-                x0l.append(np.copy(self.x0))
+
+                # append to records
+                dvl = np.vstack((dvl, dv))
+                x0l = np.vstack((x0l, self.x0))
+
+                # accept new state and decision vector
                 xo = np.copy(self.x0)
-                dx *= 2
                 dvo = np.copy(dv)
+
+                # double state perturbation
+                dx *= 2
+
                 if verbose:
                     print("Feasible! dx now {}".format(dx))
                 if i == npts:
@@ -302,16 +334,19 @@ class Indirect(Segment):
 
             # if failed
             else:
+                # increment failures
                 j += 1
+                # halve perturbation size
                 dx /= 2
+                # reset initial state
                 self.x0 = np.copy(xo)
                 if verbose:
                     print("Not feasible! dx now {}".format(dx))
                 if j == 20:
                     break
 
-        self.x0 = np.copy(xold)
-        return np.array(dvl), np.array(x0l)
+        self.x0 = x0
+        return dvl, x0l
 
     def random_walks(self, dv, alpha, dx=0.01, atol=1e-10, rtol=1e-10, iter=10, verbose=False, nn=20, npts=20):
 
@@ -328,22 +363,7 @@ class Indirect(Segment):
         # indicies
         ind = np.linspace(0, n-int(0.1*n), nn, dtype=int)
 
-        # optimal trajectory samples
-        tl, xl = tl[ind], xl[ind,:]
-
-        # compute durations
-        Tl = np.array([tf - tl[i] for i in range(nn)])
-
-        # parallel args
-        args = [(T, xl0, alpha, dx, atol, rtol, iter, verbose, npts) for T, xl0 in zip(Tl, xl)]
-
-        # parallel pool
-        p = Pool(cpu_count())
-
-        return p.map(self.random_walk_args, args)
-
-    def random_walk_args(self, args):
-        return self.random_walk(*args)
+        # optimal trajectory sampl
 
     def plot_homotopy(self, dvah, ax=None):
 
@@ -378,15 +398,8 @@ class Indirect(Segment):
             ax.set_aspect('equal')
         return ax
 
-
-
-
-
-
-
-
 if __name__ == "__main__":
 
-    seg = Indirect([0,0,np.pi,0],[0,0,0,0],0,3)
-    dv  = np.hstack(([3], np.random.uniform(-1,1,seg.xdim)))
-    seg.random_walks(dv, 1)
+    seg = Indirect([0,0,0,0],[0,0,0,0])
+    tl, xl = seg.propagate(4,np.random.uniform(-1,1,seg.xdim), 0)
+    seg.sample_traj(tl, xl)

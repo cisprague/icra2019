@@ -8,9 +8,8 @@ from scipy.integrate import simps
 
 class Direct(Segment):
 
-    def __init__(self, x0, xf, Tlb, Tub):
+    def __init__(self, x0, xf):
         Segment.__init__(self, x0, xf)
-        self.Tlb, self.Tub = Tlb, Tub
 
     def encode(self, T, states, controls):
 
@@ -58,7 +57,7 @@ class Direct(Segment):
 
         # new controls
         controlsn = CubicSpline(times, controls, bc_type="natural")(timesn)
-        controlsn = np.clip(controlsn, self.ulb, self.uub)
+        controlsn = np.clip(controlsn, -self.ub, self.ub)
 
         # encode decision vector
         return self.encode(times[-1], statesn, controlsn)
@@ -71,7 +70,7 @@ class Direct(Segment):
         )).T
 
         # controls
-        controls = np.random.uniform(self.ulb, self.uub, N)
+        controls = np.random.uniform(-self.ub, self.ub, N)
 
         # duration
         if T is None:
@@ -83,8 +82,8 @@ class Direct(Segment):
         return self.encode(T, states, controls)
 
     def get_bounds(self):
-        lb = [self.Tlb] + ([*self.xlb] + [self.ulb])*self.N
-        ub = [self.Tub] + ([*self.xub] + [self.uub])*self.N
+        lb = [self.Tlb] + ([*self.xlb] + [-self.ub])*self.N
+        ub = [self.Tub] + ([*self.xub] + [self.ub])*self.N
         return lb, ub
 
     def fitness(self, dv):
@@ -148,7 +147,10 @@ class Direct(Segment):
     def gradient(self, dv):
         return pg.estimate_gradient(self.fitness, dv)
 
-    def solve(self, inp, obj='energy'):
+    def solve(self, inp, Tlb=0, Tub=30, obj='energy'):
+
+        self.Tlb = Tlb
+        self.Tub = Tub
 
         # if guess
         if isinstance(inp, int):
