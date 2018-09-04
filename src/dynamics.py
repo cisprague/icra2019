@@ -74,7 +74,7 @@ class Dynamics(object):
         # time optimal control
         if alpha == 1:
 
-            return -self.ub*np.sign(lomega*np.cos(theta)-lv)
+            return self.ub*np.sign(lomega*np.cos(theta)-lv)
 
         else:
             # unbounded optimal control

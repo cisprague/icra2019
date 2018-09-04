@@ -23,7 +23,7 @@ def homotopy(pair):
     fname = "../data/homotopy/" + str(pair)
 
     # perform homotopy
-    dvs = seg.homotopy(verbose=True, iter=200, iter0=200, atol=1e-12, rtol=1e-12, lb=1, fname=fname)
+    dvs = seg.homotopy(verbose=True, iter=500, iter0=500, atol=1e-12, rtol=1e-12, lb=1, fname=fname)
 
 
 if __name__ == "__main__":
