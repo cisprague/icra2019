@@ -265,7 +265,7 @@ class Indirect(Segment):
         n = len(tln)
 
         # indicies
-        ind = np.linspace(0, n-int(0.1*n), nn, dtype=int)
+        ind = np.linspace(0, int(n*0.5), nn, dtype=int)
 
         # sample times and trajectory
         tls = tln[ind]
@@ -280,7 +280,7 @@ class Indirect(Segment):
         # return durations and fullstates
         return Tls, xls
 
-    def random_walk(self, T, xl0, alpha, dx=0.01, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=20):
+    def random_walk(self, T, xl0, alpha, dxmax=0.01, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=20):
 
         # save original initial state
         x0 = np.copy(self.x0)
@@ -297,6 +297,9 @@ class Indirect(Segment):
         # list of optimal trajectories
         trajectories = list()
 
+        # set nominal perturbation size
+        dx = dxmax
+
         # random walk sequence
         i, j = 0, 0
         if verbose: print("Beginning random walk from {}".format(xl0))
@@ -304,7 +307,7 @@ class Indirect(Segment):
 
             # original initial state
             xo = np.copy(self.x0)
-            self.x0 += (self.xlb - self.xub)*np.random.uniform(-dx, dx, self.xdim)
+            self.x0 += (self.xub - self.xlb)*np.random.uniform(-dx, dx, self.xdim)
             dv, feas = self.solve(dv=dvo, alpha=alpha, iter=iter)
 
             # if succesfull
@@ -328,7 +331,7 @@ class Indirect(Segment):
                 dvo = np.copy(dv)
 
                 # double state perturbation
-                dx *= 2
+                dx = min(dx*2, dxmax)
 
                 if verbose:
                     print("Feasible! dx now {}".format(dx))
@@ -349,24 +352,27 @@ class Indirect(Segment):
                     break
 
         self.x0 = x0
-        return trajectories
+        return np.array(trajectories)
 
-    def random_walks(self, dv, alpha, dx=0.01, atol=1e-10, rtol=1e-10, iter=10, verbose=False, nn=20, npts=20):
+    def random_walks(self, tln, xln, alpha, dxmax=0.01, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=2, nwalks=2, nn=2):
 
-        # decode decision vector
-        T, l0 = self.decode(dv)
+        # divide trajectory
+        Tls, xls = self.sample_traj(tln, xln, nn=nn)
 
-        # propagate trajectory
-        tl, xl = self.propagate(T, l0, alpha)
-        tf = tl[-1]*1
+        # random walk processes
+        args = [(T, xl0, alpha) for _ in range(nwalks) for T, xl0 in zip(Tls, xls)]
 
-        # number of trajectory nodes
-        n = len(tl)
+        # number of CPUs
+        n = cpu_count()
+        print("Executing with {} CPU cores.".format(n))
 
-        # indicies
-        ind = np.linspace(0, n-int(0.1*n), nn, dtype=int)
+        # parallel pool
+        p = Pool(n)
 
-        # optimal trajectory sampl
+        # results
+        res = p.starmap(self.random_walk, args)
+        return res
+
 
     def plot_homotopy(self, dvah, ax=None):
 
