@@ -294,9 +294,8 @@ class Indirect(Segment):
         # decision vector
         dvo = self.encode(T, l0)
 
-        # decision vector and initial state records
-        dvl = np.empty(shape=(0,self.xdim+1), dtype=float)
-        x0l = np.empty(shape=(0,self.xdim), dtype=float)
+        # list of optimal trajectories
+        trajectories = list()
 
         # random walk sequence
         i, j = 0, 0
@@ -316,9 +315,13 @@ class Indirect(Segment):
                 # reset failures
                 j = 0
 
-                # append to records
-                dvl = np.vstack((dvl, dv))
-                x0l = np.vstack((x0l, self.x0))
+                # get trajectory
+                tl, xl, ul = self.propagate(*self.decode(dv), alpha, controls=True)
+
+                # consolidate
+                traj = np.vstack((tl, xl.T, ul)).T
+                trajectories.append(traj)
+
 
                 # accept new state and decision vector
                 xo = np.copy(self.x0)
@@ -346,7 +349,7 @@ class Indirect(Segment):
                     break
 
         self.x0 = x0
-        return dvl, x0l
+        return trajectories
 
     def random_walks(self, dv, alpha, dx=0.01, atol=1e-10, rtol=1e-10, iter=10, verbose=False, nn=20, npts=20):
 

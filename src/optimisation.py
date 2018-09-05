@@ -38,7 +38,7 @@ def nominal_energy(pair):
     while i < 5:
 
         # solve trajectory
-        dv, feas = seg.solve(0.1, Tub=To+1, iter=300)
+        dv, feas = seg.solve(0, Tub=To+0.5, iter=300)
 
         # duration
         T = dv[0]
