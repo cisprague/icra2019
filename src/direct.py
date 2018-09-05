@@ -180,7 +180,8 @@ class Direct(Segment):
 
         # algorithm
         algo = pg.ipopt()
-        algo.set_numeric_option("tol", 1e-8)
+        algo.set_numeric_option("acceptable_tol", 1e-8)
+        algo.set_integer_option("max_iter", 500)
         algo = pg.algorithm(algo)
         algo.set_verbosity(1)
 
@@ -189,6 +190,38 @@ class Direct(Segment):
 
         # return decision vector
         return pop.champion_x
+
+    def plot(self, dv, ax=None):
+
+        # decode decision vector
+        times, h, states, controls = self.decode(dv)
+
+        # create figure
+        if ax is None:
+            fig, ax = plt.subplots(1)
+
+        # compute endpoints
+        x = states[:,0] + np.sin(states[:,2])
+        y = np.cos(states[:,2])
+
+        # plot points
+        ax.plot(x, y, "k-")
+
+        # plot arms
+        for i in range(len(states)):
+            ax.plot([x[i], states[i, 0]], [y[i], 0], "k.-", alpha=0.1)
+
+        # equal aspect ratio
+        ax.set_aspect("equal")
+
+        # set y limits
+        ax.set_ylim(-1, 1)
+
+        # return the axis
+        return ax
+
+
+
 
 if __name__ == "__main__":
 

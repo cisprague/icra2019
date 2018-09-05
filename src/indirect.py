@@ -79,7 +79,7 @@ class Indirect(Segment):
     def gradient(self, dv):
         return pg.estimate_gradient(self.fitness, dv)
 
-    def solve(self, alpha, Tlb=1, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-2, iter=200, dv=None, verbose=False, auto=False):
+    def solve(self, alpha, Tlb=1, Tub=30, lb=1, atol=1e-10, rtol=1e-10, otol=1e-5, iter=200, dv=None, verbose=False):
 
         # set homotopy parameter
         self.alpha = alpha
@@ -97,7 +97,7 @@ class Indirect(Segment):
 
         # problem
         prob = pg.problem(self)
-        prob.c_tol = 1e-5
+        prob.c_tol = otol
 
         # algorithm
         algo = pg.ipopt()
