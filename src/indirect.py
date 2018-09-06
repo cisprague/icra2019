@@ -354,7 +354,7 @@ class Indirect(Segment):
         self.x0 = x0
         return np.array(trajectories)
 
-    def random_walks(self, tln, xln, alpha, dxmax=0.01, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=2, nwalks=2, nn=2):
+    def random_walks(self, tln, xln, alpha, dxmax=0.001, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=10, nwalks=5, nn=10, fname=None):
 
         # divide trajectory
         Tls, xls = self.sample_traj(tln, xln, nn=nn)
@@ -371,8 +371,12 @@ class Indirect(Segment):
 
         # results
         res = p.starmap(self.random_walk, args)
-        return res
+        res = np.hstack(res)
 
+        if fname is not None:
+            np.save(fname, res)
+
+        return res
 
     def plot_homotopy(self, dvah, ax=None):
 

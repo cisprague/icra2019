@@ -8,7 +8,7 @@ from multiprocessing import Pool, cpu_count
 from itertools import permutations
 
 # list of all possible boundary pairs
-conds = [[x,0,theta,0] for theta in [0, np.pi] for x in [-1,0,1]]
+conds = [[x,0,theta,0] for theta in [0, np.pi] for x in [0,1]]
 conds = list(permutations(conds, 2))
 
 def nominal_energy(pair):
@@ -38,7 +38,7 @@ def nominal_energy(pair):
     while i < 5:
 
         # solve trajectory
-        dv, feas = seg.solve(0, Tub=To+0.5, iter=300)
+        dv, feas = seg.solve(0, Tub=To+0.1, iter=300, atol=1e-12, rtol=1e-12)
 
         # duration
         T = dv[0]
@@ -78,15 +78,44 @@ def homotopy(pair):
     # perform homotopy
     dvs = seg.homotopy(verbose=True, iter=500, iter0=500, atol=1e-12, rtol=1e-12, lb=1, fname=fname)
 
+def random_walks_energy(pair):
+
+    # verbosity
+    print("Performing random walks on pair: {}".format(pair))
+
+    # instantiate segment
+    seg = Indirect(*pair)
+
+    # file name
+    fname = "../data/energy_walks/" + str(pair) + ".npy"
+
+    # load nominal dv
+    dv = np.load("../data/nominal_energy/" + str(pair) + ".npy")
+
+    # get nominal trajectory
+    tl, xl = seg.propagate(*seg.decode(dv), 0,)
+
+    # do random walks
+    res = seg.random_walks(tl, xl, 0, verbose=True)
+
+    # save result
+    np.save(fname, res)
+
 
 if __name__ == "__main__":
 
+    for cond in conds:
+        try:
+            random_walks_energy(cond)
+        except:
+            continue
+
 
     # number of CPUs
-    n = cpu_count()
-    print("Executing with {} CPU cores.".format(n))
+    #n = cpu_count()
+    #print("Executing with {} CPU cores.".format(n))
 
     # parallel pool
-    p = Pool(n)
+    #p = Pool(n)
 
-    p.map(nominal_energy, conds)
+    #p.map(random_walks_energy, conds)
