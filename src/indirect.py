@@ -128,7 +128,7 @@ class Indirect(Segment):
                 print("Supplied decision vector was {}.".format("succesfull" if feas else "unsuccesfull"))
             return pop.champion_x, feas
 
-    def homotopy(self, atol=1e-10, rtol=1e-10, otol=1e-4, lb=1, iter0=200, iter=100, verbose=False, fname=None):
+    def homotopy(self, damax=0.1, dv=None, atol=1e-12, rtol=1e-12, otol=1e-4, lb=1, iter0=200, iter=100, verbose=False, fname=None):
 
         # try to load prexisting array
         try:
@@ -159,7 +159,8 @@ class Indirect(Segment):
             # new homotopy record list
             dvah = np.empty(shape=(0,self.xdim+2), dtype=float)
             # optimal decision vector not known yet
-            dvo = None
+            dvo = None if dv is None else dv
+            print(dvo)
             # homotopy parameter of zero
             alpha = 0
 
@@ -228,7 +229,12 @@ class Indirect(Segment):
 
                 # increase homotopy parameter
                 if alpha < alphatol:
-                    alpha = (1+alpha)/2
+                    alphanew = (1+alpha)/2
+                    alphadiff = alphanew - alpha
+                    if alphadiff > damax:
+                        alpha += damax
+                    else:
+                        alpha = alphanew
                     if verbose: print("Increasing to {}".format(alpha))
 
                 # full homotopy parameter value
@@ -251,7 +257,7 @@ class Indirect(Segment):
                         print("{} unsuccesfull TOC tries.".format(i))
 
                 # 10 unsuccesfull bang bang tries
-                if i == 10:
+                if i == 2:
                     return dvah
 
                 # decrease homotopy parameter
@@ -265,7 +271,7 @@ class Indirect(Segment):
         n = len(tln)
 
         # indicies
-        ind = np.linspace(0, int(n*0.5), nn, dtype=int)
+        ind = np.linspace(int(n*0.1), int(n*0.8), nn, dtype=int)
 
         # sample times and trajectory
         tls = tln[ind]
@@ -280,7 +286,7 @@ class Indirect(Segment):
         # return durations and fullstates
         return Tls, xls
 
-    def random_walk(self, T, xl0, alpha, dxmax=0.01, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=20):
+    def random_walk(self, T, xl0, alpha, npts, dxmax=0.01 , iter=100, verbose=True, atol=1e-10, rtol=1e-10):
 
         # save original initial state
         x0 = np.copy(self.x0)
@@ -303,12 +309,13 @@ class Indirect(Segment):
         # random walk sequence
         i, j = 0, 0
         if verbose: print("Beginning random walk from {}".format(xl0))
-        while True:
+        while i < npts:
 
             # original initial state
             xo = np.copy(self.x0)
             self.x0 += (self.xub - self.xlb)*np.random.uniform(-dx, dx, self.xdim)
-            dv, feas = self.solve(dv=dvo, alpha=alpha, iter=iter)
+            print(dvo)
+            dv, feas = self.solve(dv=dvo, alpha=alpha, iter=iter, lb=1000)
 
             # if succesfull
             if feas:
@@ -325,7 +332,6 @@ class Indirect(Segment):
                 traj = np.vstack((tl, xl.T, ul)).T
                 trajectories.append(traj)
 
-
                 # accept new state and decision vector
                 xo = np.copy(self.x0)
                 dvo = np.copy(dv)
@@ -335,8 +341,7 @@ class Indirect(Segment):
 
                 if verbose:
                     print("Feasible! dx now {}".format(dx))
-                if i == npts:
-                    break
+                    print(i)
 
             # if failed
             else:
@@ -354,13 +359,13 @@ class Indirect(Segment):
         self.x0 = x0
         return np.array(trajectories)
 
-    def random_walks(self, tln, xln, alpha, dxmax=0.001, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=10, nwalks=5, nn=10, fname=None):
+    def random_walks(self, tln, xln, alpha, dxmax=0.001, atol=1e-10, rtol=1e-10, iter=100, verbose=False, npts=20, nwalks=5, nn=5, fname=None):
 
         # divide trajectory
         Tls, xls = self.sample_traj(tln, xln, nn=nn)
 
         # random walk processes
-        args = [(T, xl0, alpha) for _ in range(nwalks) for T, xl0 in zip(Tls, xls)]
+        args = [(T, xl0, alpha, npts, 0.01, 20) for _ in range(nwalks) for T, xl0 in zip(Tls, xls)]
 
         # number of CPUs
         n = cpu_count()
@@ -371,7 +376,7 @@ class Indirect(Segment):
 
         # results
         res = p.starmap(self.random_walk, args)
-        res = np.hstack(res)
+        res = np.concatenate(res)
 
         if fname is not None:
             np.save(fname, res)

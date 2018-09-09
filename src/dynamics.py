@@ -74,7 +74,7 @@ class Dynamics(object):
         # time optimal control
         if alpha == 1:
 
-            return self.ub*np.sign(lomega*np.cos(theta)-lv)
+            return -self.ub*np.sign(lomega*np.cos(theta)-lv)
 
         else:
             # unbounded optimal control
@@ -89,7 +89,8 @@ class Dynamics(object):
         return lomega*(-u*np.cos(theta) + np.sin(theta)) + \
         ltheta*omega + lv*u + lx*v + u**2
 
-    def plot_traj(self, states, interp=False, ax=None, arm=True, pts=True):
+    @staticmethod
+    def plot_traj(states, interp=False, ax=None, arm=True, pts=True):
 
         if ax is None:
             fig, ax = plt.subplots(1)
@@ -107,7 +108,7 @@ class Dynamics(object):
                 ax.plot([x[i], states[i, 0]], [y[i], 0], "k.-", alpha=0.1)
 
         if pts:
-            ax.plot(x, y, "k.-")
+            ax.plot(x, y, "k-")
 
         # plot interpolant if desired
         if interp:
@@ -118,7 +119,8 @@ class Dynamics(object):
 
         return ax
 
-    def plot_timeline(self, times, states, controls, interp=False, ax=None, mark="k-"):
+    @staticmethod
+    def plot_timeline(times, states, controls, interp=False, ax=None, mark="k-"):
 
         if ax is None:
             fig, ax = plt.subplots(self.xdim+self.udim, sharex=True)

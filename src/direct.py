@@ -147,7 +147,7 @@ class Direct(Segment):
     def gradient(self, dv):
         return pg.estimate_gradient(self.fitness, dv)
 
-    def solve(self, inp, Tlb=0, Tub=30, obj='energy'):
+    def solve(self, inp, Tlb=2, Tub=30, obj='time'):
 
         self.Tlb = Tlb
         self.Tub = Tub
@@ -180,7 +180,7 @@ class Direct(Segment):
 
         # algorithm
         algo = pg.ipopt()
-        algo.set_numeric_option("acceptable_tol", 1e-8)
+        algo.set_numeric_option("acceptable_tol", 1e-5)
         algo.set_integer_option("max_iter", 500)
         algo = pg.algorithm(algo)
         algo.set_verbosity(1)
@@ -191,7 +191,7 @@ class Direct(Segment):
         # return decision vector
         return pop.champion_x
 
-    def plot(self, dv, ax=None):
+    def plot_traj(self, dv, ax=None):
 
         # decode decision vector
         times, h, states, controls = self.decode(dv)
@@ -213,12 +213,32 @@ class Direct(Segment):
 
         # equal aspect ratio
         ax.set_aspect("equal")
-
-        # set y limits
-        ax.set_ylim(-1, 1)
-
+        
         # return the axis
         return ax
+
+    def plot_timeline(self, dv):
+
+        # decode decision vector
+        times, h, states, controls = self.decode(dv)
+
+        # create figure
+        fig, ax = plt.subplots(self.xdim + 1, sharex=True)
+
+        # plot states
+        for i in range(self.xdim):
+            ax[i].plot(times, states[:,i], "k-")
+
+        # plot control
+        ax[-1].plot(times, controls, "k-")
+
+        return ax
+
+
+
+
+
+
 
 
 

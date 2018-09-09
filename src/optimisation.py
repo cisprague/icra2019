@@ -7,10 +7,22 @@ import numpy as np
 from multiprocessing import Pool, cpu_count
 from itertools import permutations
 
-# list of all possible boundary pairs
-conds = [[x,0,theta,0] for theta in [0, np.pi] for x in [0,1]]
-conds = list(permutations(conds, 2))
+# nominal configurations
+xfl = [[x,0,theta,0] for x in [0,1] for theta in [0,np.pi]]
 
+x0fl = [([0, 0, 0, 0], [0, 0, 3.141592653589793, 0]),
+ ([0, 0, 0, 0], [1, 0, 0, 0]),
+ ([0, 0, 0, 0], [1, 0, 3.141592653589793, 0]),
+ ([0, 0, 3.141592653589793, 0], [0, 0, 0, 0]),
+ ([0, 0, 3.141592653589793, 0], [1, 0, 0, 0]),
+ ([0, 0, 3.141592653589793, 0], [1, 0, 3.141592653589793, 0]),
+ ([1, 0, 0, 0], [0, 0, 0, 0]),
+ ([1, 0, 0, 0], [0, 0, 3.141592653589793, 0]),
+ ([1, 0, 3.141592653589793, 0], [0, 0, 0, 0]),
+ ([1, 0, 3.141592653589793, 0], [0, 0, 3.141592653589793, 0])
+]
+
+# Step 1: generate nominal trajectories for each behaviour
 def nominal_energy(pair):
 
     # verbosity
@@ -21,15 +33,27 @@ def nominal_energy(pair):
 
     # result destination
     fname = "../data/nominal_energy/" + str(pair) + ".npy"
+    print(fname)
 
     # check if record already exists
     try:
-        dv = np.load(fname)
-        To = dv[0]
+
+        # get trajectory
+        traj = np.load(fname)
+
+        # nominal duration
+        To = traj[-1,0] - traj[0,0]
+
+        # verbosity
         print("Found prexisting trajectory.")
+
+    # if we didn't find a prexisting trajectory
     except:
-        # minimum time recorded
-        To = 30
+
+        print("Didn't find prexisting trajectory")
+
+        # use nominal upper time bound
+        To = 20
 
     # failure counter
     i = 0
@@ -48,10 +72,21 @@ def nominal_energy(pair):
 
         # if solution feasible and faster
         if T < To and feas:
+
+            # verbosity
+            print("Best time now {}.".format(T))
+
+            # set optimal time
             To = T
-            dvo = dv
-            print("Best")
-            np.save(fname, dvo)
+
+            # compute trajectory with optimal decision vector
+            tl, xl, ul = seg.propagate(*seg.decode(dv), 0, controls=True)
+
+            # assemble full data
+            traj = np.vstack((tl, xl.T, ul)).T
+
+            # save trajectory
+            np.save(fname, traj)
 
         # if feasible and not faster
         elif feas:
@@ -62,8 +97,6 @@ def nominal_energy(pair):
         else:
             print("Infeasible")
 
-
-# homotopy for each condition
 def homotopy(pair):
 
     # verbosity
@@ -72,11 +105,19 @@ def homotopy(pair):
     # instantiate segment
     seg = Indirect(*pair)
 
-    # file name
-    fname = "../data/homotopy/" + str(pair)
+    # load nominal trajectory
+    nom = np.load("../data/nominal_energy/" + str(pair) + ".npy")
+
+    # construct decision vector
+    T = nom[-1,0] - nom[0,0]
+    l0 = nom[0,1+seg.xdim:1+2*seg.xdim]
+    dv = np.hstack(([T], l0))
+
+    # file name to save homotopy
+    fname = "../data/nominal_homotopy/" + str(pair)
 
     # perform homotopy
-    dvs = seg.homotopy(verbose=True, iter=500, iter0=500, atol=1e-12, rtol=1e-12, lb=1, fname=fname)
+    dvs = seg.homotopy(dv=dv, verbose=True, iter=200, atol=1e-12, rtol=1e-12, lb=1000, fname=fname)
 
 def random_walks_energy(pair):
 
@@ -87,16 +128,16 @@ def random_walks_energy(pair):
     seg = Indirect(*pair)
 
     # file name
-    fname = "../data/energy_walks/" + str(pair) + ".npy"
+    fname = "../data/walks_energy/" + str(pair) + ".npy"
 
-    # load nominal dv
-    dv = np.load("../data/nominal_energy/" + str(pair) + ".npy")
-
-    # get nominal trajectory
-    tl, xl = seg.propagate(*seg.decode(dv), 0,)
+    # load nominal trajectory
+    traj = np.load("../data/nominal_energy/" + str(pair) + ".npy")
+    tl = traj[:,0]
+    xl = traj[:,1:1+2*seg.xdim]
+    ul = traj[:,-1]
 
     # do random walks
-    res = seg.random_walks(tl, xl, 0, verbose=True)
+    res = seg.random_walks(tl, xl, 0, verbose=True, npts=20, nwalks=2, nn=2, dxmax=0.01)
 
     # save result
     np.save(fname, res)
@@ -104,18 +145,16 @@ def random_walks_energy(pair):
 
 if __name__ == "__main__":
 
-    for cond in conds:
-        try:
-            random_walks_energy(cond)
-        except:
-            continue
+    print(x0fl)
 
 
     # number of CPUs
-    #n = cpu_count()
-    #print("Executing with {} CPU cores.".format(n))
+    n = cpu_count()
+    print("Executing with {} CPU cores.".format(n))
 
     # parallel pool
-    #p = Pool(n)
+    p = Pool(n)
+    p.map(homotopy, x0fl)
 
-    #p.map(random_walks_energy, conds)
+    #p.map(random_walks_energy, x0fl)
+    #[random_walks_energy(x0f) for x0f in x0fl]
