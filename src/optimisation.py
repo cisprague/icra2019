@@ -149,12 +149,12 @@ if __name__ == "__main__":
 
 
     # number of CPUs
-    n = cpu_count()
-    print("Executing with {} CPU cores.".format(n))
+    #n = cpu_count()
+    #print("Executing with {} CPU cores.".format(n))
 
     # parallel pool
-    p = Pool(n)
-    p.map(homotopy, x0fl)
+    #p = Pool(n)
+    #p.map(homotopy, x0fl)
 
     #p.map(random_walks_energy, x0fl)
-    #[random_walks_energy(x0f) for x0f in x0fl]
+    [random_walks_energy(x0f) for x0f in x0fl]
