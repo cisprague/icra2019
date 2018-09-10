@@ -32,12 +32,15 @@ def solve(x0, xf, alpha, guess=None):
     dyn = dynamics(x0, xf, alpha)
 
     # time and state guess
-    t, s = dyn.linear_guess(9, 100) if guess is None else guess
+    t, s = dyn.linear_guess(1, 50) if guess is None else guess
+
+    # duration
+    p = [1.]
 
     # solve tpbvp
-    res = solve_bvp(dyn.fun, dyn.bc, t, s, tol=1e-10, verbose=2, max_nodes=10000)
+    res = solve_bvp(dyn.fun, dyn.bc, t, s, p, tol=1e-10, verbose=2, max_nodes=10000)
 
-    return res.x, res.y, res.success, res.sol
+    return res
 
 def plot_traj(states, ax=None):
 
@@ -72,7 +75,7 @@ class dynamics(object):
         # homotopy parameter
         self.alpha = alpha
 
-    def fun(self, t, fs):
+    def fun(self, t, fs, p):
 
         # states
         x, v, theta, omega, lx, lv, ltheta, lomega = fs
@@ -101,9 +104,9 @@ class dynamics(object):
         dlomega = -ltheta
 
         # return fullstate transiton
-        return np.vstack((dx, dv, dtheta, domega, dlx, dlv, dltheta, dlomega))
+        return np.vstack((dx, dv, dtheta, domega, dlx, dlv, dltheta, dlomega))*p[0]
 
-    def bc(self, fs0, fsf):
+    def bc(self, fs0, fsf, p):
 
         # initial state mismatch
         ec0 = fs0[:4] - self.x0
@@ -112,7 +115,7 @@ class dynamics(object):
         ec1 = fsf[:4] - self.xf
 
         # return constraint vector
-        return np.hstack((ec0, ec1))
+        return np.hstack((ec0, ec1, [0]))
 
     def linear_guess(self, T, nn):
 
