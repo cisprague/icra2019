@@ -8,6 +8,7 @@ import os
 from scipy.optimize import fsolve
 dp = os.path.dirname(os.path.realpath(__file__)) + "/"
 from scipy.interpolate import CubicSpline
+from matplotlib.colors import LinearSegmentedColormap
 
 def propagate_controlled(x0, xf, T, controller):
     t, x, u = dynamics(x0, xf, 0).propagate_controlled(T, controller)
@@ -92,7 +93,7 @@ def random_walk(T, xl0, xf, alpha, npts, dxmax=0.01, otol=1e-5, iter=200, Tlb=1,
     while i < npts:
         print("Point {}".format(i))
         xo = np.copy(x0)
-        x0 += np.array([5, 2, np.pi, 1], float)*np.random.uniform(-dx, dx, 4)
+        x0 += np.array([0, 2, np.pi, 1], float)*np.random.uniform(-dx, dx, 4)
         dv, feas, t, y, u = solve(x0, xf, alpha, dv=dvo, otol=otol, iter=iter, Tlb=Tlb, Tub=Tub, lb=lb, atol=atol, rtol=rtol)
         if feas:
             traj = np.vstack((t, y.T, u)).T
@@ -360,7 +361,7 @@ class srinivasan(object):
 
 class mlp(torch.nn.Sequential):
 
-    def __init__(self, shape, name="MLP"):
+    def __init__(self, shape):
 
         # architecture
         self.shape = shape
@@ -376,13 +377,8 @@ class mlp(torch.nn.Sequential):
 
         # loss data
         self.ltrn, self.ltst = list(), list()
-        self.dropout = False
-
-        # name
-        self.name = name
 
         # operations
-        #self.ops = [torch.nn.BatchNorm2d(self.shape[0])]
         self.ops = list()
 
         # apply operations
@@ -390,10 +386,6 @@ class mlp(torch.nn.Sequential):
 
             # linear layer
             self.ops.append(torch.nn.Linear(self.shape[i], self.shape[i + 1]))
-
-            # batch normalisation
-            #self.ops.append(torch.nn.BatchNorm2d(self.shape[i + 1]))
-
 
             # if penultimate layer
             if i == self.nl - 2:
@@ -407,44 +399,62 @@ class mlp(torch.nn.Sequential):
 
                 # activation
                 self.ops.append(torch.nn.LeakyReLU())
-                #self.ops.append(torch.nn.AlphaDropout(p=0.2))
                 pass
 
         # initialise neural network
         torch.nn.Sequential.__init__(self, *self.ops)
         self.double()
 
-    @staticmethod
-    def format(x):
-        if isinstance(x, np.ndarray):
-            x = torch.autograd.Variable(torch.from_numpy(x)).double()
-        elif isinstance(x, torch.DoubleTensor):
-            x = torch.autograd.Variable(x).double()
-        elif isinstance(x, torch.autograd.Variable):
-            x = x.double()
-        else:
-            raise TypeError("Unable to format input.")
-        return x
+    def train_gpu(self, idat, odat, epo=100, lr=1e-4, ptst=0.1):
 
-    def forward(self, x):
+        # put network parameters on GPU
+        self.cuda()
 
-        # format input
-        x = self.format(x)
+        # put data on GPU
+        idat = idat.cuda()
+        odat = odat.cuda()
 
-        # apply operations
-        for op in self.ops:
-            x = op(x)
+        # number of testing data points
+        n = int(idat.shape[0]*ptst)
 
-        # return transformation
-        return x
+        # testing data
+        itst = idat[:n, :]
+        otst = odat[:n, :]
 
-    def predict(self, x):
+        # training data
+        itrn = idat[n:, :]
+        otrn = odat[n:, :]
 
-        # format
-        x = self.format(x).data.numpy()
+        # optimiser
+        opt = torch.optim.SGD(self.parameters(), lr=lr, momentum=0.9)
 
-        # predict
-        return self.forward(x).data.numpy()
+        # loss function
+        lf = torch.nn.MSELoss()
+
+        # iterate through episodes
+        for e in range(epo):
+
+            # zero gradients
+            opt.zero_grad()
+
+            # testing loss
+            ltst = lf(self(itst), otst)
+
+            # training loss
+            ltrn = lf(self(itrn), otrn)
+
+            # record losses
+            self.ltst.append(ltst.item())
+            self.ltrn.append(ltrn.item())
+
+            # print progress
+            print("Episode {}; Testing Loss {}; Training Loss {}".format(e, self.ltst[-1], self.ltrn[-1]))
+
+            # backpropagate training error
+            ltrn.backward()
+
+            # update weights
+            opt.step()
 
     def train(self, idat, odat, epo=50, batches=10, lr=1e-4, ptst=0.1):
 
@@ -517,14 +527,13 @@ class mlp(torch.nn.Sequential):
 
 class data(object):
 
-    def __init__(self, data, cin, cout, shuffle=True):
+    def __init__(self, data, cin, cout):
 
         # cast as numpy array
         data = np.array(data)
 
         # shuffle rows
-        if shuffle:
-            np.random.shuffle(data)
+        np.random.shuffle(data)
 
         # number of samples
         self.n = data.shape[0]
@@ -537,12 +546,191 @@ class mlp_controller(object):
 
     def __init__(self, mlp):
         self.mlp = mlp
+        self.mlp.cpu()
+        self.mlp.double()
 
-    def __call__(self, state):
-        return self.mlp.predict(state)[0]
+    def __call__(self, x):
+        x = torch.from_numpy(x).double()
+        x = self.mlp(x).detach().numpy()[0]
+        return x
 
-    def control(self, state):
-        return self(state)
+    def control(self, x):
+        return self(x)
+
+    def predict(self, xl):
+        xl = torch.from_numpy(xl).double()
+        xl = self.mlp(xl).detach().numpy().flatten()
+        return xl
+
+class Node(object):
+
+    def __init__(self, tasks):
+
+        # assign actions, conditions, or nodes
+        self.tasks = tasks
+
+        # set all response to 3 (off)
+        self.reset()
+
+    def reset(self):
+
+        # extract actions and conditions
+        self.response = dict()
+        for task in self.tasks:
+
+            # retrieve response of subsequent node
+            if isinstance(task, Node):
+                self.response.update(task.response)
+
+            # update response of leaves
+            else:
+                self.response[task.__name__] = 3
+
+class Fallback(Node):
+
+    def __init__(self, tasks):
+
+        # initialise as node
+        Node.__init__(self, tasks)
+
+    def __call__(self):
+
+        # reset response
+        self.reset()
+
+        # loop through tasks
+        for task in self.tasks:
+
+            # compute status
+            status = task()
+
+            # retrieve node response
+            if isinstance(task, Node):
+                self.response.update(task.response)
+
+            # append leaf response
+            else:
+                self.response[task.__name__] = status
+
+            # if failed
+            if status is 0:
+                continue
+
+            # if succesful
+            elif status is 1:
+                return 1
+
+            # if running
+            elif status is 2:
+                return 2
+
+        # all tasks returned False
+        return 0
+
+class Sequence(Node):
+
+    def __init__(self, tasks):
+
+        # initialise as node
+        Node.__init__(self, tasks)
+
+    def __call__(self):
+
+        # reset response
+        self.reset()
+
+        # loop through tasks
+        for task in self.tasks:
+
+            # compute status
+            status = task()
+
+            # retrieve node response
+            if isinstance(task, Node):
+                self.response.update(task.response)
+
+            # append leaf response
+            else:
+                self.response[task.__name__] = status
+
+            # if failed
+            if status is 0:
+                return 0
+
+            # if succesful
+            elif status is 1:
+                continue
+
+            # if running
+            elif status is 2:
+                return 2
+
+        # all tasks returned true
+        return 1
+
+class Tree(object):
+
+    def __init__(self, node):
+
+        # parent node
+        self.node = node
+
+        # response record
+        self.responses = list()
+
+    def reset(self):
+
+        # reset response record
+        self.responses = list()
+
+    def __call__(self):
+
+        # compute tree response
+        status = self.node()
+        self.response = self.node.response
+
+        # record response
+        self.responses.append(self.response)
+
+        return self.response
+
+    def plot(self, ax=None, duplicates=False):
+
+        # create axis if not provided
+        if ax is None:
+            fig, ax = plt.subplots(1)
+
+        # function names
+        cols = list(self.response.keys())
+
+        # data frame
+        data = pd.DataFrame(self.responses, columns=cols)
+
+        # remove consecutive duplicates
+        if duplicates is False:
+            data = data[cols].loc[(data[cols].shift() != data[cols]).any(axis=1)]
+
+        # make time sequence horizontally
+        data = data.T
+
+        # colormap
+        cmap = sb.color_palette("Paired", 4)
+
+        # discretise colors for responses
+        cmap = LinearSegmentedColormap.from_list('Custom', cmap, len(cmap))
+
+        # make heatmap
+        ax = sb.heatmap(data, ax=ax, cmap=cmap, linewidth=0.1, cbar_kws=dict(use_gridspec=False, location='top'))
+
+        # set colorbar tick spacing
+        cb = ax.collections[0].colorbar
+        cb.set_ticks(np.linspace(0, 3, len(self.response.keys()))[1::2])
+
+        # set tick labels
+        cb.set_ticklabels(["Failure", "Sucesss", "Running", "Off"])
+        ax.set_ylabel('Leaves')
+
+        return ax
 
 
 
