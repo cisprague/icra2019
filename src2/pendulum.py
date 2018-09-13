@@ -5,10 +5,11 @@ import pygmo as pg, numpy as np, matplotlib.pyplot as plt, torch
 from scipy.integrate import solve_ivp, RK45
 from multiprocessing import Pool, cpu_count
 import os
-from scipy.optimize import fsolve
+from scipy.optimize import newton
 dp = os.path.dirname(os.path.realpath(__file__)) + "/"
 from scipy.interpolate import CubicSpline
 from matplotlib.colors import LinearSegmentedColormap
+import pandas as pd, seaborn as sb
 
 def propagate_controlled(x0, xf, T, controller):
     t, x, u = dynamics(x0, xf, 0).propagate_controlled(T, controller)
@@ -249,7 +250,7 @@ class dynamics(object):
     def propagate_controlled(self, T, controller):
 
         integrator = RK45(
-            lambda t, x: self.dxdt(x, controller(x)),
+            lambda t, x: self.dxdt(x, controller(t, x)),
             0,
             self.x0,
             T,
@@ -266,7 +267,7 @@ class dynamics(object):
             integrator.step()
             tl.append(integrator.t)
             xl.append(integrator.y)
-            ul.append(controller.control(integrator.y))
+            ul.append(controller.control(integrator.t, integrator.y))
 
         ul.append(ul[-1])
 
@@ -312,7 +313,7 @@ class dynamics(object):
 
 class srinivasan(object):
 
-    def __init__(self, kx=0.1, kv=0.5, kt=10, kw=10, um=2):
+    def __init__(self, kx=0.01, kv=0.5, kt=15, kw=10, um=1):
         self.tr = 0
         self.kx = kx
         self.kv = kv
@@ -322,12 +323,35 @@ class srinivasan(object):
         self.trl = [self.tr]
         self.um = um
 
+        xm = np.pi**2*(np.pi + self.um)
+        vm = np.pi*self.um
+        self.ttl = list()
+        for tr in [-2*np.pi, 0, 2*np.pi]:
+            fun = lambda tt: kt*(tt-tr) + np.sin(tt) - vm*np.cos(tt) + kt*np.arctan(kx*xm + kv*vm)
+            self.ttl.append(newton(fun, np.pi))
+        self.ttl = np.array(self.ttl)
+        print(self.ttl)
+        '''
+        if any(self.ttl < 0):
+            raise ValueError("Unable to find good tt, adjust weights {}".format(self.ttl))
+        '''
+
+
+
     def gen_tt(self, tr):
+        '''
         xm = np.pi**2*(np.pi + self.um)
         vm = np.pi*self.um
         eq = lambda tt: self.kt*(tt[0]-tr) + np.sin(tt[0]) + self.kt*np.arctan(self.kx*xm + self.kv*vm)
         res = fsolve(eq, [0])
         return res[0]
+        '''
+        if tr == -2*np.pi:
+            return self.ttl[0]
+        elif tr == 0:
+            return self.ttl[1]
+        elif tr == 2*np.pi:
+            return self.ttl[2]
 
     def gen_tr(self, t, tr):
         tt = self.gen_tt(tr)
@@ -346,14 +370,14 @@ class srinivasan(object):
         u = np.clip(u, -self.um, self.um)
         return u
 
-    def __call__(self, state): # NOTE: for intermediate integration steps
+    def __call__(self, time, state): # NOTE: for intermediate integration steps
         x, v, t, w = state
         u = self.gen_u(x, v, t, w, self.tr)
         return u
 
-    def control(self, state): # NOTE: for succesfull integration steps
+    def control(self, time, state): # NOTE: for succesfull integration steps
         x, v, t, w = state
-        u = self(state)
+        u = self(time, state)
         self.tr = self.gen_tr(t, self.tr)
         self.ul.append(u)
         self.trl.append(self.tr)
@@ -405,14 +429,16 @@ class mlp(torch.nn.Sequential):
         torch.nn.Sequential.__init__(self, *self.ops)
         self.double()
 
-    def train_gpu(self, idat, odat, epo=100, lr=1e-4, ptst=0.1):
+    def train(self, idat, odat, epo=100, lr=1e-4, ptst=0.1, gpu=False):
 
-        # put network parameters on GPU
-        self.cuda()
-
-        # put data on GPU
-        idat = idat.cuda()
-        odat = odat.cuda()
+        if gpu:
+            self.cuda()
+            idat = idat.cuda()
+            odat = odat.cuda()
+        else:
+            self.cpu()
+            idat = idat.cpu()
+            odat = odat.cpu()
 
         # number of testing data points
         n = int(idat.shape[0]*ptst)
@@ -456,7 +482,7 @@ class mlp(torch.nn.Sequential):
             # update weights
             opt.step()
 
-    def train(self, idat, odat, epo=50, batches=10, lr=1e-4, ptst=0.1):
+    def train_old(self, idat, odat, epo=50, batches=10, lr=1e-4, ptst=0.1):
 
         # numpy
         idat, odat = [dat.numpy() for dat in [idat, odat]]
@@ -512,7 +538,7 @@ class mlp(torch.nn.Sequential):
                 ltste.append(float(ltst.data[0]))
 
                 # progress
-                print(self.name, t, ltrne[-1], ltste[-1])
+                print(t, ltrne[-1], ltste[-1])
 
                 # backpropagate training error
                 ltrn.backward()
@@ -549,13 +575,13 @@ class mlp_controller(object):
         self.mlp.cpu()
         self.mlp.double()
 
-    def __call__(self, x):
+    def __call__(self, t, x):
         x = torch.from_numpy(x).double()
         x = self.mlp(x).detach().numpy()[0]
         return x
 
-    def control(self, x):
-        return self(x)
+    def control(self, t, x):
+        return self(t, x)
 
     def predict(self, xl):
         xl = torch.from_numpy(xl).double()
@@ -724,7 +750,7 @@ class Tree(object):
 
         # set colorbar tick spacing
         cb = ax.collections[0].colorbar
-        cb.set_ticks(np.linspace(0, 3, len(self.response.keys()))[1::2])
+        #cb.set_ticks(np.linspace(0, 3, len(self.response.keys()))[1::2])
 
         # set tick labels
         cb.set_ticklabels(["Failure", "Sucesss", "Running", "Off"])
