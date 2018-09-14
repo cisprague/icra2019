@@ -11,6 +11,24 @@ from scipy.interpolate import CubicSpline
 from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd, seaborn as sb
 
+def plot_states(times, states, controls, ax=None, mark="k-", alpha=1):
+
+    ylabels = [r"$x$", r"$v$", r"$\theta$", r"$\omega$", r"$u$"]
+
+    if ax is None:
+        fig, ax = plt.subplots(5, sharex=True)
+
+    for i in range(4):
+        ax[i].plot(times, states[:,i], mark, alpha=alpha)
+        ax[i].set_ylabel(ylabels[i])
+    ax[4].plot(times, controls, mark, alpha=alpha)
+    ax[4].set_ylabel(ylabels[4])
+    ax[4].set_xlabel(r"t")
+
+    return ax
+
+
+
 def propagate_controlled(x0, xf, T, controller):
     t, x, u = dynamics(x0, xf, 0).propagate_controlled(T, controller)
     return t, x, u
@@ -45,7 +63,6 @@ def homotopy(traj, damax=0.01, otol=1e-5, iter=200, Tlb=1, Tub=25, lb=100, atol=
             a = (ao + a)/2
 
     return np.vstack((t, x.T, u)).T
-
 
 def random_walks(t, x, alpha, nn, npts, nwalks, dxmax=0.01, otol=1e-5, iter=200, Tlb=1, Tub=25, lb=100, atol=1e-12, rtol=1e-12, fname=None):
 
@@ -121,6 +138,9 @@ def plot_controls(t, u, ax=None, mark='k-', alpha=1):
     # equal aspect ratio
     ax.set_aspect('equal')
 
+    ax.set_xlabel(r"$t$")
+    ax.set_ylabel(r"$u$")
+
     return ax
 
 def plot_traj(traj, n=500, ax=None, mark='k-', alpha=1, arm=False):
@@ -150,6 +170,9 @@ def plot_traj(traj, n=500, ax=None, mark='k-', alpha=1, arm=False):
     if arm:
         for i in range(traj.shape[0]):
             ax.plot([x[i], traj[i, 0]], [y[i], 0], "k.-", alpha=0.1)
+
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$y$")
 
     return ax
 
@@ -313,24 +336,26 @@ class dynamics(object):
 
 class srinivasan(object):
 
-    def __init__(self, kx=0.01, kv=0.5, kt=15, kw=10, um=1):
-        self.tr = 0
+    def __init__(self, kx=0.01, kv=0.5, kt=15, kw=10, um=1, gtt=0):
+
+
         self.kx = kx
         self.kv = kv
         self.kt = kt
         self.kw = kw
         self.ul = list()
-        self.trl = [self.tr]
         self.um = um
 
         xm = np.pi**2*(np.pi + self.um)
         vm = np.pi*self.um
         self.ttl = list()
         for tr in [-2*np.pi, 0, 2*np.pi]:
-            fun = lambda tt: kt*(tt-tr) + np.sin(tt) - vm*np.cos(tt) + kt*np.arctan(kx*xm + kv*vm)
-            self.ttl.append(newton(fun, np.pi))
+            fun = lambda tt: kt*(tt-tr) + np.sin(tt) - self.um*np.cos(tt) + kt*np.arctan(kx*xm + kv*vm)
+            res = newton(fun, gtt)
+            self.ttl.append(res)
         self.ttl = np.array(self.ttl)
-        print(self.ttl)
+        self.tr = 0
+        self.trl = [self.tr]
         '''
         if any(self.ttl < 0):
             raise ValueError("Unable to find good tt, adjust weights {}".format(self.ttl))
@@ -355,6 +380,7 @@ class srinivasan(object):
 
     def gen_tr(self, t, tr):
         tt = self.gen_tt(tr)
+        tt = abs(tt)
         dt = t - tr
         if -np.pi <= dt and dt < -tt:
             return tr - 2*np.pi
@@ -750,7 +776,7 @@ class Tree(object):
 
         # set colorbar tick spacing
         cb = ax.collections[0].colorbar
-        #cb.set_ticks(np.linspace(0, 3, len(self.response.keys()))[1::2])
+        cb.set_ticks(np.linspace(0,3,9)[1::2])
 
         # set tick labels
         cb.set_ticklabels(["Failure", "Sucesss", "Running", "Off"])
