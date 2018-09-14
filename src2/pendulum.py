@@ -23,7 +23,7 @@ def plot_states(times, states, controls, ax=None, mark="k-", alpha=1):
         ax[i].set_ylabel(ylabels[i])
     ax[4].plot(times, controls, mark, alpha=alpha)
     ax[4].set_ylabel(ylabels[4])
-    ax[4].set_xlabel(r"t")
+    ax[4].set_xlabel(r"$\tau$")
 
     return ax
 
@@ -138,7 +138,7 @@ def plot_controls(t, u, ax=None, mark='k-', alpha=1):
     # equal aspect ratio
     ax.set_aspect('equal')
 
-    ax.set_xlabel(r"$t$")
+    ax.set_xlabel(r"$\tau$")
     ax.set_ylabel(r"$u$")
 
     return ax
@@ -773,6 +773,8 @@ class Tree(object):
 
         # make heatmap
         ax = sb.heatmap(data, ax=ax, cmap=cmap, linewidth=0.1, cbar_kws=dict(use_gridspec=False, location='top'))
+        #ax.set_xticklabels([])
+        ax.get_xaxis().set_visible(False)
 
         # set colorbar tick spacing
         cb = ax.collections[0].colorbar
@@ -780,7 +782,7 @@ class Tree(object):
 
         # set tick labels
         cb.set_ticklabels(["Failure", "Sucesss", "Running", "Off"])
-        ax.set_ylabel('Leaves')
+        #ax.set_ylabel('Leaves')
 
         return ax
 
